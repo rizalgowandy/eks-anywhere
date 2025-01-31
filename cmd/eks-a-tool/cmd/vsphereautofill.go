@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/aws/eks-anywhere/pkg/api/v1alpha1"
+	"github.com/aws/eks-anywhere/pkg/cluster"
 	"github.com/aws/eks-anywhere/pkg/filewriter"
 	"github.com/aws/eks-anywhere/pkg/validations"
 )
@@ -65,10 +66,11 @@ func autofill(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to get datacenter config from file: %v", err)
 	}
-	machineConfig, err := v1alpha1.GetVSphereMachineConfigs(clusterConfigFileName)
+	config, err := cluster.ParseConfigFromFile(clusterConfigFileName)
 	if err != nil {
-		return fmt.Errorf("unable to get machine config from file: %v", err)
+		return err
 	}
+	machineConfig := config.VSphereMachineConfigs
 	controlPlaneMachineConfig := machineConfig[clusterConfig.Spec.ControlPlaneConfiguration.MachineGroupRef.Name]
 	workerMachineConfig := machineConfig[clusterConfig.Spec.WorkerNodeGroupConfigurations[0].MachineGroupRef.Name]
 	var updatedFields []string
@@ -95,7 +97,7 @@ func autofill(ctx context.Context) error {
 	updateField("THUMBPRINT", &datacenterConfig.Spec.Thumbprint)
 
 	updateFieldInt("CONTROL_PLANE_COUNT", &clusterConfig.Spec.ControlPlaneConfiguration.Count)
-	updateFieldInt("WORKER_NODE_COUNT", &clusterConfig.Spec.WorkerNodeGroupConfigurations[0].Count)
+	updateFieldInt("WORKER_NODE_COUNT", clusterConfig.Spec.WorkerNodeGroupConfigurations[0].Count)
 
 	updateField("SSH_AUTHORIZED_KEY", &controlPlaneMachineConfig.Spec.Users[0].SshAuthorizedKeys[0])
 	updateField("SSH_USERNAME", &controlPlaneMachineConfig.Spec.Users[0].Name)
@@ -115,19 +117,19 @@ func autofill(ctx context.Context) error {
 
 	clusterOutput, err := yaml.Marshal(clusterConfig)
 	if err != nil {
-		return fmt.Errorf("error outputting yaml: %v", err)
+		return fmt.Errorf("outputting yaml: %v", err)
 	}
 	datacenterOutput, err := yaml.Marshal(datacenterConfig)
 	if err != nil {
-		return fmt.Errorf("error outputting yaml: %v", err)
+		return fmt.Errorf("outputting yaml: %v", err)
 	}
 	controlPlaneMachineOutput, err := yaml.Marshal(controlPlaneMachineConfig)
 	if err != nil {
-		return fmt.Errorf("error outputting yaml: %v", err)
+		return fmt.Errorf("outputting yaml: %v", err)
 	}
 	workerMachineOutput, err := yaml.Marshal(workerMachineConfig)
 	if err != nil {
-		return fmt.Errorf("error outputting yaml: %v", err)
+		return fmt.Errorf("outputting yaml: %v", err)
 	}
 	result := strings.ReplaceAll(string(datacenterOutput), "  aws: {}\n", "")
 	result = strings.ReplaceAll(result, "  vsphere: {}\n", "")
@@ -139,7 +141,7 @@ func autofill(ctx context.Context) error {
 	}
 	_, err = writer.Write(filepath.Base(clusterConfig.Name), []byte(result))
 	if err != nil {
-		return fmt.Errorf("error writing to file %s: %v", clusterConfig.Name, err)
+		return fmt.Errorf("writing to file %s: %v", clusterConfig.Name, err)
 	}
 	fmt.Printf("The following fields were updated: %v\n", updatedFields)
 	return nil

@@ -5,6 +5,8 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/aws/eks-anywhere/internal/pkg/api"
+	"github.com/aws/eks-anywhere/pkg/api/v1alpha1"
 	"github.com/aws/eks-anywhere/pkg/cluster"
 	"github.com/aws/eks-anywhere/pkg/filewriter"
 	"github.com/aws/eks-anywhere/pkg/providers"
@@ -12,35 +14,57 @@ import (
 )
 
 func MarshalClusterSpec(clusterSpec *cluster.Spec, datacenterConfig providers.DatacenterConfig, machineConfigs []providers.MachineConfig) ([]byte, error) {
-	clusterObj, err := yaml.Marshal(clusterSpec.Cluster)
-	if err != nil {
-		return nil, fmt.Errorf("error outputting cluster yaml: %v", err)
+	marshallables := make([]v1alpha1.Marshallable, 0, 5+len(machineConfigs)+len(clusterSpec.TinkerbellTemplateConfigs)+len(clusterSpec.SnowIPPools))
+	marshallables = append(marshallables,
+		clusterSpec.Cluster.ConvertConfigToConfigGenerateStruct(),
+		datacenterConfig.Marshallable(),
+	)
+
+	for _, machineConfig := range machineConfigs {
+		marshallables = append(marshallables, machineConfig.Marshallable())
 	}
-	datacenterObj, err := yaml.Marshal(datacenterConfig)
-	if err != nil {
-		return nil, fmt.Errorf("error outputting datacenter yaml: %v", err)
-	}
-	resources := [][]byte{clusterObj, datacenterObj}
-	for _, m := range machineConfigs {
-		mObj, err := yaml.Marshal(m)
-		if err != nil {
-			return nil, fmt.Errorf("error outputting machine yaml: %v", err)
-		}
-		resources = append(resources, mObj)
-	}
+
+	// If a GitOpsConfig is present, marshal the GitOpsConfig to file; otherwise, use the FluxConfig
+	// Allows us to use the FluxConfig internally but preserve the provided spec while GitOpsConfig is being deprecated
 	if clusterSpec.GitOpsConfig != nil {
-		gitopsObj, err := yaml.Marshal(clusterSpec.GitOpsConfig)
-		if err != nil {
-			return nil, fmt.Errorf("error outputting gitops config yaml: %v", err)
-		}
-		resources = append(resources, gitopsObj)
+		marshallables = append(marshallables, clusterSpec.GitOpsConfig.ConvertConfigToConfigGenerateStruct())
 	}
+
+	if clusterSpec.FluxConfig != nil && clusterSpec.GitOpsConfig == nil {
+		marshallables = append(marshallables, clusterSpec.FluxConfig.ConvertConfigToConfigGenerateStruct())
+	}
+
 	if clusterSpec.OIDCConfig != nil {
-		oidcObj, err := yaml.Marshal(clusterSpec.OIDCConfig)
-		if err != nil {
-			return nil, fmt.Errorf("error outputting oidc config yaml: %v", err)
+		marshallables = append(marshallables, clusterSpec.OIDCConfig.ConvertConfigToConfigGenerateStruct())
+	}
+	if clusterSpec.AWSIamConfig != nil {
+		marshallables = append(marshallables, clusterSpec.AWSIamConfig.ConvertConfigToConfigGenerateStruct())
+	}
+	if clusterSpec.TinkerbellTemplateConfigs != nil {
+		for _, t := range clusterSpec.TinkerbellTemplateConfigs {
+			marshallables = append(marshallables, t.ConvertConfigToConfigGenerateStruct())
 		}
-		resources = append(resources, oidcObj)
+	}
+	if clusterSpec.SnowIPPools != nil {
+		for _, t := range clusterSpec.SnowIPPools {
+			marshallables = append(marshallables, t.ConvertConfigToConfigGenerateStruct())
+		}
+	}
+
+	resources := make([][]byte, 0, len(marshallables))
+	for _, marshallable := range marshallables {
+		resource, err := yaml.Marshal(marshallable)
+		if err != nil {
+			return nil, fmt.Errorf("failed marshalling resource for cluster spec: %v", err)
+		}
+		if clusterSpec.Cluster.Spec.ClusterNetwork.DNS.ResolvConf == nil {
+			removeFromDefaultConfig := []string{"spec.clusterNetwork.dns"}
+			resource, err = api.CleanupPathsFromYaml(resource, removeFromDefaultConfig)
+			if err != nil {
+				return nil, fmt.Errorf("cleaning paths from yaml: %v", err)
+			}
+		}
+		resources = append(resources, resource)
 	}
 	return templater.AppendYamlResources(resources...), nil
 }
@@ -51,7 +75,7 @@ func WriteClusterConfig(clusterSpec *cluster.Spec, datacenterConfig providers.Da
 		return err
 	}
 	if filePath, err := writer.Write(fmt.Sprintf("%s-eks-a-cluster.yaml", clusterSpec.Cluster.ObjectMeta.Name), resourcesSpec, filewriter.PersistentFile); err != nil {
-		err = fmt.Errorf("error writing eks-a cluster config file into %s: %v", filePath, err)
+		err = fmt.Errorf("writing eks-a cluster config file into %s: %v", filePath, err)
 		return err
 	}
 

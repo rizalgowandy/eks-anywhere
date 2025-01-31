@@ -10,14 +10,17 @@ type ValidationResult struct {
 	Name        string
 	Err         error
 	Remediation string
+	Silent      bool
 }
 
 func (v *ValidationResult) Report() {
 	if v.Err != nil {
-		logger.MarkFail("Validation failed", "validation", v.Name, "error", v.Err, "remediation", v.Remediation)
+		logger.MarkFail("Validation failed", "validation", v.Name, "error", v.Err.Error(), "remediation", v.Remediation)
 		return
 	}
-	v.LogPass()
+	if !v.Silent {
+		v.LogPass()
+	}
 }
 
 func (v *ValidationResult) LogPass() {

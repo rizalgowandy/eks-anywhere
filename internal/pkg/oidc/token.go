@@ -4,11 +4,11 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"time"
 
-	jose "gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
+	jose "github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v3/jwt"
 )
 
 type oidcTokenClaim struct {
@@ -85,17 +85,17 @@ func WithSubject(subject string) JWTOpt {
 }
 
 func (o *oidcTokenClaim) generateToken() (string, error) {
-	keyContent, err := ioutil.ReadFile(o.keyFile)
+	keyContent, err := os.ReadFile(o.keyFile)
 	if err != nil {
 		return "", fmt.Errorf("could not read key file: %v", err)
 	}
 	block, _ := pem.Decode(keyContent)
 	if block == nil {
-		return "", fmt.Errorf("error decoding PEM file %s", o.keyFile)
+		return "", fmt.Errorf("decoding PEM file %s", o.keyFile)
 	}
 	privKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
-		return "", fmt.Errorf("error parsing key content of %s: %v", o.keyFile, err)
+		return "", fmt.Errorf("parsing key content of %s: %v", o.keyFile, err)
 	}
 
 	jwkKey := &jose.JSONWebKey{
@@ -118,7 +118,7 @@ func (o *oidcTokenClaim) generateToken() (string, error) {
 
 	token, err := jwt.Signed(signer).Claims(o).CompactSerialize()
 	if err != nil {
-		return "", fmt.Errorf("error signing token: %v", err)
+		return "", fmt.Errorf("signing token: %v", err)
 	}
 
 	return token, nil

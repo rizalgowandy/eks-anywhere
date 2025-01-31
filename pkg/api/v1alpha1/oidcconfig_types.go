@@ -2,12 +2,13 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 // OIDCConfig defines an OpenID Connect (OIDCConfigSpec) identity provider configuration
 
-// OIDCConfigSpec defines the desired state of OIDCConfig
+// OIDCConfigSpec defines the desired state of OIDCConfig.
 type OIDCConfigSpec struct {
 	// ClientId defines the client ID for the OpenID Connect client
 	ClientId string `json:"clientId,omitempty"`
@@ -79,18 +80,33 @@ func RequiredClaimsSliceEqual(a, b []OIDCConfigRequiredClaim) bool {
 	return len(m) == 0
 }
 
+// IsManaged returns true if the oidcconfig is associated with a workload cluster.
+func (c *OIDCConfig) IsManaged() bool {
+	if s, ok := c.Annotations[managementAnnotation]; ok {
+		return s != ""
+	}
+	return false
+}
+
+func (c *OIDCConfig) SetManagedBy(clusterName string) {
+	if c.Annotations == nil {
+		c.Annotations = map[string]string{}
+	}
+	c.Annotations[managementAnnotation] = clusterName
+}
+
 type OIDCConfigRequiredClaim struct {
 	Claim string `json:"claim,omitempty"`
 	Value string `json:"value,omitempty"`
 }
 
-// OIDCConfigStatus defines the observed state of OIDCConfig
+// OIDCConfigStatus defines the observed state of OIDCConfig.
 type OIDCConfigStatus struct{}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// OIDCConfig is the Schema for the oidcconfigs API
+// OIDCConfig is the Schema for the oidcconfigs API.
 type OIDCConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -99,9 +115,18 @@ type OIDCConfig struct {
 	Status OIDCConfigStatus `json:"status,omitempty"`
 }
 
+// +kubebuilder:object:generate=false
+// Same as OIDCConfig except stripped down for generation of yaml file while writing to github repo when flux is enabled.
+type OIDCConfigGenerate struct {
+	metav1.TypeMeta `json:",inline"`
+	ObjectMeta      `json:"metadata,omitempty"`
+
+	Spec OIDCConfigSpec `json:"spec,omitempty"`
+}
+
 //+kubebuilder:object:root=true
 
-// OIDCConfigList contains a list of OIDCConfig
+// OIDCConfigList contains a list of OIDCConfig.
 type OIDCConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -114,6 +139,27 @@ func (c *OIDCConfig) Kind() string {
 
 func (c *OIDCConfig) ExpectedKind() string {
 	return OIDCConfigKind
+}
+
+func (c *OIDCConfig) Validate() field.ErrorList {
+	return validateOIDCConfig(c)
+}
+
+func (c *OIDCConfig) ConvertConfigToConfigGenerateStruct() *OIDCConfigGenerate {
+	namespace := defaultEksaNamespace
+	if c.Namespace != "" {
+		namespace = c.Namespace
+	}
+	config := &OIDCConfigGenerate{
+		TypeMeta: c.TypeMeta,
+		ObjectMeta: ObjectMeta{
+			Name:        c.Name,
+			Annotations: c.Annotations,
+			Namespace:   namespace,
+		},
+		Spec: c.Spec,
+	}
+	return config
 }
 
 func init() {

@@ -1,36 +1,48 @@
 providers:
   - name: "docker"
-    url: "{{.dir}}/infrastructure-docker/v0.3.19/infrastructure-components-development.yaml"
+    url: "{{.dir}}/infrastructure-docker/{{.DockerProviderVersion}}/infrastructure-components-development.yaml"
     type: "InfrastructureProvider"
-    version: "v0.3.19"
+    version: "{{.DockerProviderVersion}}"
+  - name: "tinkerbell"
+    url: "{{.dir}}/infrastructure-tinkerbell/{{.TinkerbellProviderVersion}}/infrastructure-components.yaml"
+    type: "InfrastructureProvider"
+    version: "{{.TinkerbellProviderVersion}}"
+  - name: "cloudstack"
+    url: "{{.dir}}/infrastructure-cloudstack/{{.CloudStackProviderVersion}}/infrastructure-components.yaml"
+    type: "InfrastructureProvider"
+    version: "{{.CloudStackProviderVersion}}"
   - name: "vsphere"
-    url: "{{.dir}}/infrastructure-vsphere/v0.7.8/infrastructure-components.yaml"
+    url: "{{.dir}}/infrastructure-vsphere/{{.VSphereProviderVersion}}/infrastructure-components.yaml"
     type: "InfrastructureProvider"
-    version: "v0.7.8"
-  - name: "aws"
-    url: "{{.dir}}/infrastructure-aws/v0.6.4/infrastructure-components.yaml"
+    version: "{{.VSphereProviderVersion}}"
+  - name: "snow"
+    url: "{{.dir}}/infrastructure-snow/{{.SnowProviderVersion}}/infrastructure-components.yaml"
     type: "InfrastructureProvider"
-    version: "v0.6.4"
+    version: "{{.SnowProviderVersion}}"
   - name: "cluster-api"
-    url: "{{.dir}}/cluster-api/v0.3.19/core-components.yaml"
+    url: "{{.dir}}/cluster-api/{{.ClusterApiProviderVersion}}/core-components.yaml"
     type: "CoreProvider"
-    version: "v0.3.19"
+    version: "{{.ClusterApiProviderVersion}}"
   - name: "kubeadm"
-    url: "{{.dir}}/control-plane-kubeadm/v0.3.19/control-plane-components.yaml"
+    url: "{{.dir}}/control-plane-kubeadm/{{.KubeadmControlPlaneProviderVersion}}/control-plane-components.yaml"
     type: "ControlPlaneProvider"
-    version: "v0.3.19"
+    version: "{{.KubeadmControlPlaneProviderVersion}}"
   - name: "kubeadm"
-    url: "{{.dir}}/bootstrap-kubeadm/v0.3.19/bootstrap-components.yaml"
+    url: "{{.dir}}/bootstrap-kubeadm/{{.KubeadmBootstrapProviderVersion}}/bootstrap-components.yaml"
     type: "BootstrapProvider"
-    version: "v0.3.19"
+    version: "{{.KubeadmBootstrapProviderVersion}}"
   - name: "etcdadm-bootstrap"
-    url: "{{.dir}}/bootstrap-etcdadm-bootstrap/v0.1.0/bootstrap-components.yaml"
+    url: "{{.dir}}/bootstrap-etcdadm-bootstrap/{{.EtcdadmBootstrapProviderVersion}}/bootstrap-components.yaml"
     type: "BootstrapProvider"
-    version: "v0.1.0"
+    version: "{{.EtcdadmBootstrapProviderVersion}}"
   - name: "etcdadm-controller"
-    url: "{{.dir}}/bootstrap-etcdadm-controller/v0.1.0/bootstrap-components.yaml"
+    url: "{{.dir}}/bootstrap-etcdadm-controller/{{.EtcdadmControllerProviderVersion}}/bootstrap-components.yaml"
     type: "BootstrapProvider"
-    version: "v0.1.0"
+    version: "{{.EtcdadmControllerProviderVersion}}"
+  - name: "nutanix"
+    url: "{{.dir}}/infrastructure-nutanix/{{.NutanixProviderVersion}}/infrastructure-components.yaml"
+    type: "InfrastructureProvider"
+    version: "{{.NutanixProviderVersion}}"
 
 overridesFolder: {{.dir}}
 images:
@@ -61,12 +73,9 @@ images:
   control-plane-kubeadm/kube-rbac-proxy:
     repository: {{ .KubeadmControlPlaneKubeRbacProxyRepository }}
     tag: {{ .KubeadmControlPlaneKubeRbacProxyTag }} #org one is v0.4.1
-  infrastructure-aws/cluster-api-aws-controller:
-    repository: {{ .ClusterApiAwsControllerRepository }}
-    tag: {{ .ClusterApiAwsControllerTag }}
-  infrastructure-aws/kube-rbac-proxy:
-    repository: {{ .ClusterApiAwsKubeRbacProxyRepository }}
-    tag: {{ .ClusterApiAwsKubeRbacProxyTag }} #org one is v0.4.1
+  infrastructure-cloudstack/kube-rbac-proxy:
+    repository: {{ .ClusterApiCloudStackKubeRbacProxyRepository }}
+    tag: {{ .ClusterApiCloudStackKubeRbacProxyTag }} #org one is v0.8.0
   infrastructure-vsphere/manager:
     repository: {{ .ClusterApiVSphereControllerRepository }}
     tag: {{ .ClusterApiVSphereControllerTag }}
@@ -79,6 +88,9 @@ images:
   infrastructure-docker/kube-rbac-proxy:
     repository: {{ .DockerKubeRbacProxyRepository }}
     tag: {{ .DockerKubeRbacProxyTag }} #org one is v0.4.0
+  infrastructure-nutanix/manager:
+    repository: {{ .ClusterApiNutanixControllerRepository }}
+    tag: {{ .ClusterApiNutanixControllerTag }}
   bootstrap-etcdadm-bootstrap/etcdadm-bootstrap-provider:
     repository: {{ .EtcdadmBootstrapProviderRepository }}
     tag: {{ .EtcdadmBootstrapProviderTag }}
@@ -93,3 +105,5 @@ images:
     tag: {{ .EtcdadmControllerKubeRbacProxyTag }} #org one is v0.4.0
 cert-manager:
   timeout: 30m
+  url: "{{.dir}}/cert-manager/{{.CertManagerVersion}}/cert-manager.yaml"
+  version: {{.CertManagerVersion}}

@@ -19,7 +19,7 @@ func CleanUpS3Bucket(session *session.Session, bucket string, maxAge float64) er
 	}
 	result, err := service.ListObjectsV2(input)
 	if err != nil {
-		return fmt.Errorf("error listing s3 bucket objects: %v", err)
+		return fmt.Errorf("listing s3 bucket objects: %v", err)
 	}
 
 	var objectList []*string
@@ -27,7 +27,7 @@ func CleanUpS3Bucket(session *session.Session, bucket string, maxAge float64) er
 	for _, object := range result.Contents {
 		logger.V(4).Info("s3", "object_name", *(object.Key), "last_modified", *(object.LastModified))
 		lastModifiedTime := time.Since(*(object.LastModified)).Seconds()
-		if lastModifiedTime > maxAge && *(object.Key) != "eksctl/eksctl" {
+		if lastModifiedTime > maxAge && *(object.Key) != "eksctl/eksctl" && *(object.Key) != "generated-artifacts/" {
 			logger.V(4).Info("Adding object for deletion")
 			objectList = append(objectList, object.Key)
 		} else {
@@ -45,7 +45,7 @@ func CleanUpS3Bucket(session *session.Session, bucket string, maxAge float64) er
 				},
 			)
 			if err != nil {
-				return fmt.Errorf("error deleting object %s: %v", *object, err)
+				return fmt.Errorf("deleting object %s: %v", *object, err)
 			}
 		}
 	} else {

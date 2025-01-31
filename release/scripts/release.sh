@@ -18,22 +18,48 @@ set -e
 set -x
 set -o pipefail
 
+export LANG=C.UTF-8
+
 BASE_DIRECTORY=$(git rev-parse --show-toplevel)
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+source "$BASE_DIRECTORY"/scripts/eksa_version.sh
+source ${SCRIPT_ROOT}/setup-aws-config.sh
 
 ARTIFACTS_DIR="${1?Specify first argument - artifacts path}"
 SOURCE_BUCKET="${2?Specify second argument - source bucket}"
 RELEASE_BUCKET="${3?Specify third argument - release bucket}"
 CDN="${4?Specify fourth argument - cdn}"
 SOURCE_CONTAINER_REGISTRY="${5?Specify fifth argument - source container registry}"
-RELEASE_CONTAINER_REGISTRY="${6?Specify sixth argument - release container registry}"
- 
+PACKAGES_SOURCE_CONTAINER_REGISTRY="${6?Specify sixth argument - packages source container registry}"
+RELEASE_CONTAINER_REGISTRY="${7?Specify seventh argument - release container registry}"
+BUILD_REPO_URL="${8?Specify eighth argument - Build repo URL}"
+CLI_REPO_URL="${9?Specify ninth argument - CLI repo URL}"
+BUILD_REPO_BRANCH_NAME="${10?Specify tenth argument - Build repo branch name}"
+CLI_REPO_BRANCH_NAME="${11?Specify eleventh argument - CLI repo branch name}"
+DRY_RUN="${12?Specify twelfth argument - Dry run}"
+WEEKLY="${13?Specify thirteenth argument - Weekly release}"
+
 mkdir -p "${ARTIFACTS_DIR}"
 
+set_aws_config
+
+release_version=$(eksa-version::get_next_eksa_version_for_ancestor "$CLI_REPO_BRANCH_NAME")
+
 ${BASE_DIRECTORY}/release/bin/eks-anywhere-release release \
-	--artifact-dir "${ARTIFACTS_DIR}" \
-	--source-bucket "${SOURCE_BUCKET}" \
-	--source-container-registry "${SOURCE_CONTAINER_REGISTRY}" \
-	--cdn "${CDN}" \
-	--release-bucket "${RELEASE_BUCKET}" \
-	--release-container-registry "${RELEASE_CONTAINER_REGISTRY}" \
-	--dev-release=true
+    --release-version "${release_version}" \
+    --artifact-dir "${ARTIFACTS_DIR}" \
+    --build-repo-url "${BUILD_REPO_URL}" \
+    --cli-repo-url "${CLI_REPO_URL}" \
+    --build-repo-branch-name "${BUILD_REPO_BRANCH_NAME}" \
+    --cli-repo-branch-name "${CLI_REPO_BRANCH_NAME}" \
+    --source-bucket "${SOURCE_BUCKET}" \
+    --source-container-registry "${SOURCE_CONTAINER_REGISTRY}" \
+    --packages-source-container-registry "${PACKAGES_SOURCE_CONTAINER_REGISTRY}" \
+    --cdn "${CDN}" \
+    --release-bucket "${RELEASE_BUCKET}" \
+    --release-container-registry "${RELEASE_CONTAINER_REGISTRY}" \
+    --dev-release=true \
+    --dry-run=${DRY_RUN} \
+    --weekly=${WEEKLY} \
+    --aws-signer-profile-arn "${AWS_SIGNER_PROFILE_ARN}"

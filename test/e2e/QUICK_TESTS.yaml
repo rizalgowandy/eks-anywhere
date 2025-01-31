@@ -1,0 +1,30 @@
+quick_tests:
+# Docker
+- TestDocker.*131
+# vSphere
+- ^TestVSphereKubernetes130To131RedHatUpgrade$
+- TestVSphereKubernetes130To131StackedEtcdRedHatUpgrade
+- ^TestVSphereKubernetes130UbuntuTo131Upgrade$
+- TestVSphereKubernetes130UbuntuTo131StackedEtcdUpgrade
+- TestVSphereKubernetes130To131Ubuntu2204Upgrade
+- TestVSphereKubernetes130To131Ubuntu2204StackedEtcdUpgrade
+- TestVSphereKubernetes131Ubuntu2004To2204Upgrade
+- TestVSphereKubernetes130BottlerocketTo131Upgrade
+- TestVSphereKubernetes130BottlerocketTo131StackedEtcdUpgrade
+# CloudStack
+- TestCloudStackKubernetes130To131RedhatMultipleFieldsUpgrade
+- TestCloudStackKubernetes130To131StackedEtcdRedhatMultipleFieldsUpgrade
+# Nutanix
+- TestNutanixKubernetes130to131RedHat9Upgrade
+- TestNutanixKubernetes130to131StackedEtcdRedHat9Upgrade
+- TestNutanixKubernetes130to131RedHat8Upgrade
+- TestNutanixKubernetes130to131StackedEtcdRedHat8Upgrade
+- TestNutanixKubernetes130To131UbuntuUpgrade
+- TestNutanixKubernetes130To131StackedEtcdUbuntuUpgrade
+# Snow
+# - TestSnowKubernetes128SimpleFlow
+# - TestSnowKubernetes128StackedEtcdSimpleFlow
+# Tinkerbell
+- ^TestTinkerbellKubernetes130UbuntuTo131Upgrade$
+- TestTinkerbellKubernetes131Ubuntu2004To2204Upgrade
+- TestTinkerbellKubernetes130To131Ubuntu2204Upgrade

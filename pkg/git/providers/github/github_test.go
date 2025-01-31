@@ -3,7 +3,7 @@ package github_test
 import (
 	"context"
 	"fmt"
-	"os"
+	"math/rand"
 	"reflect"
 	"testing"
 
@@ -11,14 +11,13 @@ import (
 	goGithub "github.com/google/go-github/v35/github"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/aws/eks-anywhere/pkg/api/v1alpha1"
 	"github.com/aws/eks-anywhere/pkg/git"
 	"github.com/aws/eks-anywhere/pkg/git/providers/github"
 	"github.com/aws/eks-anywhere/pkg/git/providers/github/mocks"
 )
 
-const (
-	validPATValue = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-)
+var validPATValues = []string{"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", "github_pat_abcdefghijklmnopqrstuv_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456"}
 
 func TestValidate(t *testing.T) {
 	tests := []struct {
@@ -68,25 +67,26 @@ func TestValidate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
 			mockCtrl := gomock.NewController(t)
-			gitproviderclient := mocks.NewMockGitProviderClient(mockCtrl)
-			gitproviderclient.EXPECT().SetTokenAuth(validPATValue, tt.owner)
+			validPATValue := validPATValues[rand.Intn(len(validPATValues))]
 
 			ctx := context.Background()
-			githubproviderclient := mocks.NewMockGithubProviderClient(mockCtrl)
+			githubproviderclient := mocks.NewMockGithubClient(mockCtrl)
 			authenticatedUser := &goGithub.User{Login: &tt.authenticatedUser}
 			githubproviderclient.EXPECT().AuthenticatedUser(ctx).Return(authenticatedUser, nil)
 			githubproviderclient.EXPECT().GetAccessTokenPermissions(validPATValue).Return(tt.allPATPermissions, nil)
 			githubproviderclient.EXPECT().CheckAccessTokenPermissions("repo", tt.allPATPermissions).Return(nil)
 
 			auth := git.TokenAuth{Token: validPATValue, Username: tt.owner}
-			opts := github.Options{
-				Repository: tt.repository,
+
+			config := &v1alpha1.GithubProviderConfig{
 				Owner:      tt.owner,
+				Repository: tt.repository,
 				Personal:   tt.personal,
 			}
-			githubProvider, err := github.New(gitproviderclient, githubproviderclient, opts, auth)
+
+			githubProvider, err := github.New(githubproviderclient, config, auth)
 			if err != nil {
-				t.Errorf("error when instantiating github provider: %v, wanted nil", err)
+				t.Errorf("instantiating github provider: %v, wanted nil", err)
 			}
 
 			if !tt.personal {
@@ -106,29 +106,14 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-type testContext struct {
-	oldGithubToken   string
-	isGithubTokenSet bool
-}
-
-func (tctx *testContext) SaveContext(token string) {
-	tctx.oldGithubToken, tctx.isGithubTokenSet = os.LookupEnv(github.EksaGithubTokenEnv)
-	os.Setenv(github.EksaGithubTokenEnv, token)
-	os.Setenv(github.GithubTokenEnv, token)
-}
-
-func (tctx *testContext) RestoreContext() {
-	if tctx.isGithubTokenSet {
-		os.Setenv(github.EksaGithubTokenEnv, tctx.oldGithubToken)
-	} else {
-		os.Unsetenv(github.EksaGithubTokenEnv)
-	}
+func setupContext(t *testing.T) {
+	validPATValue := validPATValues[rand.Intn(len(validPATValues))]
+	t.Setenv(github.EksaGithubTokenEnv, validPATValue)
+	t.Setenv(github.GithubTokenEnv, validPATValue)
 }
 
 func TestIsGithubAccessTokenValidWithEnv(t *testing.T) {
-	var tctx testContext
-	tctx.SaveContext(validPATValue)
-	defer tctx.RestoreContext()
+	setupContext(t)
 
 	tests := []struct {
 		testName string
@@ -174,28 +159,26 @@ func TestGetRepoSucceeds(t *testing.T) {
 		t.Run(tt.testName, func(t *testing.T) {
 			mockCtrl := gomock.NewController(t)
 
-			gitproviderclient := mocks.NewMockGitProviderClient(mockCtrl)
-			gitproviderclient.EXPECT().SetTokenAuth(validPATValue, tt.owner)
-
-			githubproviderclient := mocks.NewMockGithubProviderClient(mockCtrl)
+			githubproviderclient := mocks.NewMockGithubClient(mockCtrl)
 			getRepoOpts := git.GetRepoOpts{Owner: tt.owner, Repository: tt.repository}
 			testRepo := &git.Repository{Name: tt.repository, Owner: tt.owner, Organization: "", CloneUrl: "https://github.com/user/repo"}
 			githubproviderclient.EXPECT().GetRepo(context.Background(), getRepoOpts).Return(testRepo, nil)
 
-			githubProviderOpts := github.Options{
-				Repository: tt.repository,
+			config := &v1alpha1.GithubProviderConfig{
 				Owner:      tt.owner,
+				Repository: tt.repository,
 				Personal:   tt.personal,
 			}
 
+			validPATValue := validPATValues[rand.Intn(len(validPATValues))]
 			auth := git.TokenAuth{Token: validPATValue, Username: tt.owner}
-			githubProvider, err := github.New(gitproviderclient, githubproviderclient, githubProviderOpts, auth)
+			githubProvider, err := github.New(githubproviderclient, config, auth)
 			if err != nil {
-				t.Errorf("error when instantiating github provider: %v, wanted nil", err)
+				t.Errorf("instantiating github provider: %v, wanted nil", err)
 			}
 			repo, err := githubProvider.GetRepo(context.Background())
 			if err != nil {
-				t.Errorf("error when calling Repo %v, wanted nil", err)
+				t.Errorf("calling Repo %v, wanted nil", err)
 			}
 			assert.Equal(t, testRepo, repo)
 		})
@@ -231,27 +214,26 @@ func TestGetNonExistantRepoSucceeds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
 			mockCtrl := gomock.NewController(t)
-			gitproviderclient := mocks.NewMockGitProviderClient(mockCtrl)
-			gitproviderclient.EXPECT().SetTokenAuth(validPATValue, tt.owner)
 
-			githubproviderclient := mocks.NewMockGithubProviderClient(mockCtrl)
+			githubproviderclient := mocks.NewMockGithubClient(mockCtrl)
 			getRepoOpts := git.GetRepoOpts{Owner: tt.owner, Repository: tt.repository}
 			githubproviderclient.EXPECT().GetRepo(context.Background(), getRepoOpts).Return(nil, &git.RepositoryDoesNotExistError{})
 
-			githubProviderOpts := github.Options{
-				Repository: tt.repository,
+			config := &v1alpha1.GithubProviderConfig{
 				Owner:      tt.owner,
+				Repository: tt.repository,
 				Personal:   tt.personal,
 			}
 
+			validPATValue := validPATValues[rand.Intn(len(validPATValues))]
 			auth := git.TokenAuth{Token: validPATValue, Username: tt.owner}
-			githubProvider, err := github.New(gitproviderclient, githubproviderclient, githubProviderOpts, auth)
+			githubProvider, err := github.New(githubproviderclient, config, auth)
 			if err != nil {
-				t.Errorf("error when instantiating github provider: %v, wanted nil", err)
+				t.Errorf("instantiating github provider: %v, wanted nil", err)
 			}
 			repo, err := githubProvider.GetRepo(context.Background())
 			if err != nil {
-				t.Errorf("error when calling Repo %v, wanted nil", err)
+				t.Errorf("calling Repo %v, wanted nil", err)
 			}
 			var nilRepo *git.Repository
 			assert.Equal(t, nilRepo, repo)
