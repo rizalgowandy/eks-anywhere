@@ -1,0 +1,350 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: {{.clusterName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: {{.podCidrs}}
+    serviceDomain: cluster.local
+    services:
+      cidrBlocks: {{.serviceCidrs}}
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: {{.clusterName}}
+    namespace: {{.eksaSystemNamespace}}
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: DockerCluster
+    name: {{.clusterName}}
+    namespace: {{.eksaSystemNamespace}}
+{{- if .externalEtcd }}
+  managedExternalEtcdRef:
+    apiVersion: etcdcluster.cluster.x-k8s.io/v1beta1
+    kind: EtcdadmCluster
+    name: {{.clusterName}}-etcd
+    namespace: {{.eksaSystemNamespace}}
+{{- end }}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: DockerCluster
+metadata:
+  name: {{.clusterName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  loadBalancer:
+    imageRepository: {{.haproxyImageRepository}}
+    imageTag: {{.haproxyImageTag}}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: DockerMachineTemplate
+metadata:
+  name: {{.controlPlaneTemplateName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  template:
+    spec:
+      extraMounts:
+      - containerPath: /var/run/docker.sock
+        hostPath: /var/run/docker.sock
+      customImage: {{.kindNodeImage}}
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  name: {{.clusterName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: DockerMachineTemplate
+      name: {{.controlPlaneTemplateName}}
+      namespace: {{.eksaSystemNamespace}}
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      imageRepository: {{.kubernetesRepository}}
+      etcd:
+{{- if .externalEtcd }}
+        external:
+          endpoints: []
+          caFile: "/etc/kubernetes/pki/etcd/ca.crt"
+          certFile: "/etc/kubernetes/pki/apiserver-etcd-client.crt"
+          keyFile: "/etc/kubernetes/pki/apiserver-etcd-client.key"
+{{- else }}
+        local:
+          imageRepository: {{.etcdRepository}}
+          imageTag: {{.etcdVersion}}
+{{- if .etcdExtraArgs }}
+          extraArgs:
+{{ .etcdExtraArgs.ToYaml | indent 12 }}
+{{- end }}
+{{- end }}
+      dns:
+        imageRepository: {{.corednsRepository}}
+        imageTag: {{.corednsVersion}}
+      apiServer:
+        certSANs:
+        - localhost
+        - 127.0.0.1
+        {{- with .apiServerCertSANs }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        extraArgs:
+          audit-policy-file: /etc/kubernetes/audit-policy.yaml
+          audit-log-path: /var/log/kubernetes/api-audit.log
+          audit-log-maxage: "30"
+          audit-log-maxbackup: "10"
+          audit-log-maxsize: "512"
+          profiling: "false"
+{{- if .apiserverExtraArgs }}
+{{ .apiserverExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+        extraVolumes:
+        - hostPath: /etc/kubernetes/audit-policy.yaml
+          mountPath: /etc/kubernetes/audit-policy.yaml
+          name: audit-policy
+          pathType: File
+          readOnly: true
+        - hostPath: /var/log/kubernetes
+          mountPath: /var/log/kubernetes
+          name: audit-log-dir
+          pathType: DirectoryOrCreate
+          readOnly: false
+{{- if .awsIamAuth}}
+        - hostPath: /var/lib/kubeadm/aws-iam-authenticator/
+          mountPath: /etc/kubernetes/aws-iam-authenticator/
+          name: authconfig
+          readOnly: false
+        - hostPath: /var/lib/kubeadm/aws-iam-authenticator/pki/
+          mountPath: /var/aws-iam-authenticator/
+          name: awsiamcert
+          readOnly: false
+{{- end}}
+      controllerManager:
+        extraArgs:
+          enable-hostpath-provisioner: "true"
+          profiling: "false"
+{{- if .controllermanagerExtraArgs }}
+{{ .controllermanagerExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+      scheduler:
+        extraArgs:
+          profiling: "false"
+{{- if .schedulerExtraArgs }}
+{{ .schedulerExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+    files:
+{{- if .kubeletConfiguration }}
+    - content: |
+{{ .kubeletConfiguration | indent 8}}
+      owner: root:root
+      permissions: "0644"
+      path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.yaml
+{{- end }}
+    - content: |
+{{ .auditPolicy | indent 8 }}
+      owner: root:root
+      path: /etc/kubernetes/audit-policy.yaml
+{{- if .registryCACert }}
+    - content: |
+{{ .registryCACert | indent 8 }}
+      owner: root:root
+      path: "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+{{- end }}
+{{- if .registryMirrorMap }}
+    - content: |
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+          {{- range $orig, $mirror := .registryMirrorMap }}
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ $orig }}"]
+            endpoint = ["https://{{ $mirror }}"]
+          {{- end }}
+          {{- if or .registryCACert .insecureSkip }}
+          [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".tls]
+          {{- if .registryCACert }}
+            ca_file = "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+          {{- end }}
+          {{- if .insecureSkip }}
+            insecure_skip_verify = {{.insecureSkip}}
+          {{- end }}
+          {{- end }}
+          {{- if .registryAuth }}
+          [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".auth]
+            username = "{{.registryUsername}}"
+            password = "{{.registryPassword}}"
+          {{- end }}
+      owner: root:root
+      path: "/etc/containerd/config_append.toml"
+{{- end }}
+{{- if .awsIamAuth}}
+    - content: |
+        # clusters refers to the remote service.
+        clusters:
+          - name: aws-iam-authenticator
+            cluster:
+              certificate-authority: /var/aws-iam-authenticator/cert.pem
+              server: https://localhost:21362/authenticate
+        # users refers to the API Server's webhook configuration
+        # (we don't need to authenticate the API server).
+        users:
+          - name: apiserver
+        # kubeconfig files require a context. Provide one for the API Server.
+        current-context: webhook
+        contexts:
+        - name: webhook
+          context:
+            cluster: aws-iam-authenticator
+            user: apiserver
+      permissions: "0640"
+      owner: root:root
+      path: /var/lib/kubeadm/aws-iam-authenticator/kubeconfig.yaml
+    - contentFrom:
+        secret:
+          name: {{.clusterName}}-aws-iam-authenticator-ca
+          key: cert.pem
+      permissions: "0640"
+      owner: root:root
+      path: /var/lib/kubeadm/aws-iam-authenticator/pki/cert.pem
+    - contentFrom:
+        secret:
+          name: {{.clusterName}}-aws-iam-authenticator-ca
+          key: key.pem
+      permissions: "0640"
+      owner: root:root
+      path: /var/lib/kubeadm/aws-iam-authenticator/pki/key.pem
+{{- end}}
+    initConfiguration:
+{{- if .kubeletConfiguration }}
+      patches: 
+        directory: /etc/kubernetes/patches
+{{- end }}
+      nodeRegistration:
+        criSocket: /var/run/containerd/containerd.sock
+{{- if not .kubeletConfiguration }}
+        kubeletExtraArgs:
+          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- end }}
+{{- if .nodeLabelArgs }}
+{{ .nodeLabelArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- if not .workerNodeGroupConfigurations }}
+        taints: []
+{{- end }}
+{{- if and .workerNodeGroupConfigurations .controlPlaneTaints }}
+        taints: {{ range .controlPlaneTaints}}
+          - key: {{ .Key }}
+            value: {{ .Value }}
+            effect: {{ .Effect }}
+{{- if .TimeAdded }}
+            timeAdded: {{ .TimeAdded }}
+{{- end }}
+        {{- end }}
+{{- end }}
+    joinConfiguration:
+{{- if .kubeletConfiguration }}
+      patches: 
+        directory: /etc/kubernetes/patches
+{{- end }}
+      nodeRegistration:
+        criSocket: /var/run/containerd/containerd.sock
+{{- if not .kubeletConfiguration }}
+        kubeletExtraArgs:
+          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- end }}
+{{- if .nodeLabelArgs }}
+{{ .nodeLabelArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- if not .workerNodeGroupConfigurations }}
+        taints: []
+{{- end }}
+{{- if and .workerNodeGroupConfigurations .controlPlaneTaints }}
+        taints: {{ range .controlPlaneTaints}}
+          - key: {{ .Key }}
+            value: {{ .Value }}
+            effect: {{ .Effect }}
+{{- if .TimeAdded }}
+            timeAdded: {{ .TimeAdded }}
+{{- end }}
+        {{- end }}
+{{- end }}
+{{- if .registryMirrorMap }}
+    preKubeadmCommands:
+    - cat /etc/containerd/config_append.toml >> /etc/containerd/config.toml
+    - systemctl daemon-reload
+    - systemctl restart containerd
+{{- end }}
+  replicas: {{.control_plane_replicas}}
+{{- if .upgradeRolloutStrategy }}
+  rolloutStrategy:
+    rollingUpdate:
+      maxSurge: {{.maxSurge}} 
+{{- end }}
+  version: {{.kubernetesVersion}}
+{{- if .externalEtcd }}
+---
+kind: EtcdadmCluster
+apiVersion: etcdcluster.cluster.x-k8s.io/v1beta1
+metadata:
+  name: {{.clusterName}}-etcd
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  replicas: {{.externalEtcdReplicas}}
+  etcdadmConfigSpec:
+    etcdadmBuiltin: true
+    cloudInitConfig:
+      version: {{.externalEtcdVersion}}
+{{- if .externalEtcdReleaseUrl }}
+      etcdReleaseURL: {{.externalEtcdReleaseUrl}}
+{{- end }}
+{{- if .etcdCipherSuites }}
+    cipherSuites: {{.etcdCipherSuites}}
+{{- end }}
+{{- if .registryMirrorMap }}
+    registryMirror:
+      endpoint: {{ .publicMirror }}
+      {{- if .registryCACert }}
+      caCert: |
+{{ .registryCACert | indent 8 }}
+      {{- end }}
+{{- end }}
+  infrastructureTemplate:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: DockerMachineTemplate
+    name: {{.etcdTemplateName}}
+    namespace: {{.eksaSystemNamespace}}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: DockerMachineTemplate
+metadata:
+  name: {{.etcdTemplateName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  template:
+    spec:
+      extraMounts:
+        - containerPath: /var/run/docker.sock
+          hostPath: /var/run/docker.sock
+      customImage: {{.kindNodeImage}}
+{{- end }}
+{{- if .registryAuth }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-credentials
+  namespace: {{.eksaSystemNamespace}}
+  labels:
+    clusterctl.cluster.x-k8s.io/move: "true"
+data:
+  username: {{.registryUsername | b64enc}}
+  password: {{.registryPassword | b64enc}}
+---
+{{- end }}

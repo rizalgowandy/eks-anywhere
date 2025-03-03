@@ -1,0 +1,317 @@
+{{- if $.failureDomains -}}{{ range $fd := $.failureDomains -}}
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: "{{$.clusterName}}"
+  name: "{{$.workerNodeGroupName}}-{{$fd.Name}}"
+  namespace: "{{$.eksaSystemNamespace}}"
+{{- if $.autoscalingConfig }}
+  annotations:
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "{{ $.autoscalingConfig.MinCount }}"
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "{{ $.autoscalingConfig.MaxCount }}"
+{{- end }}
+spec:
+  clusterName: "{{$.clusterName}}"
+{{- if not $.autoscalingConfig }}
+  replicas: {{ index $.failureDomainsReplicas $fd.Name }}
+{{- end }}
+  selector:
+    matchLabels: {}
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: "{{$.clusterName}}"
+    spec:
+      failureDomain: "{{$fd.Name}}"
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: "{{$.workloadkubeadmconfigTemplateName}}"
+      clusterName: "{{$.clusterName}}"
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: NutanixMachineTemplate
+        name: "{{$.workloadTemplateName}}-{{$fd.Name}}"
+      version: "{{$.kubernetesVersion}}"
+{{- if $.upgradeRolloutStrategy }}
+  strategy:
+    rollingUpdate:
+      maxSurge: {{$.maxSurge}}
+      maxUnavailable: {{$.maxUnavailable}}
+{{- end }}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: NutanixMachineTemplate
+metadata:
+  name: "{{$.workloadTemplateName}}-{{$fd.Name}}"
+  namespace: "{{$.eksaSystemNamespace}}"
+spec:
+  template:
+    spec:
+      providerID: "nutanix://{{$.clusterName}}-m1"
+      vcpusPerSocket: {{$.vcpusPerSocket}}
+      vcpuSockets: {{$.vcpuSockets}}
+      memorySize: {{$.memorySize}}
+      systemDiskSize: {{$.systemDiskSize}}
+      image:
+{{- if (eq $.imageIDType "name") }}
+        type: name
+        name: "{{$.imageName}}"
+{{ else if (eq $.imageIDType "uuid") }}
+        type: uuid
+        uuid: "{{$.imageUUID}}"
+{{ end }}
+      cluster:
+{{- if (eq $fd.Cluster.Type "name") }}
+        type: name
+        name: "{{ $fd.Cluster.Name }}"
+{{- else if (eq $fd.Cluster.Type "uuid") }}
+        type: uuid
+        uuid: "{{ $fd.Cluster.UUID }}"
+{{ end }}
+      subnet:
+{{- range $subnet := $fd.Subnets }}
+{{- if (eq $subnet.Type "name") }}
+        - type: name
+          name: "{{ $subnet.Name }}"
+{{- else if (eq $subnet.Type "uuid") }}
+        - type: uuid
+          uuid: "{{ $subnet.UUID }}"
+{{- end }}
+{{- end }}
+{{- if $.projectIDType}}
+      project:
+{{- if (eq $.projectIDType "name") }}
+        type: name
+        name: "{{$.projectName}}"
+{{- else if (eq $.projectIDType "uuid") }}
+        type: uuid
+        uuid: "{{$.projectUUID}}"
+{{ end }}
+{{ end }}
+{{- if $.additionalCategories}}
+      additionalCategories:
+{{- range $.additionalCategories}}
+        - key:   "{{ $.Key }}"
+          value: "{{ $.Value }}"
+{{- end }}
+{{- end }}
+---
+{{ end -}}
+{{- else -}}
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: "{{.clusterName}}"
+  name: "{{.workerNodeGroupName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+{{- if .autoscalingConfig }}
+  annotations:
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "{{ .autoscalingConfig.MinCount }}"
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "{{ .autoscalingConfig.MaxCount }}"
+{{- end }}
+spec:
+  clusterName: "{{.clusterName}}"
+{{- if not .autoscalingConfig }}
+  replicas: {{.workerReplicas}}
+{{- end }}
+  selector:
+    matchLabels: {}
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: "{{.clusterName}}"
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: "{{.workloadkubeadmconfigTemplateName}}"
+      clusterName: "{{.clusterName}}"
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: NutanixMachineTemplate
+        name: "{{.workloadTemplateName}}"
+      version: "{{.kubernetesVersion}}"
+{{- if .upgradeRolloutStrategy }}
+  strategy:
+    rollingUpdate:
+      maxSurge: {{.maxSurge}}
+      maxUnavailable: {{.maxUnavailable}}
+{{- end }}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: NutanixMachineTemplate
+metadata:
+  name: "{{.workloadTemplateName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  template:
+    spec:
+      providerID: "nutanix://{{.clusterName}}-m1"
+      vcpusPerSocket: {{.vcpusPerSocket}}
+      vcpuSockets: {{.vcpuSockets}}
+      memorySize: {{.memorySize}}
+      systemDiskSize: {{.systemDiskSize}}
+      image:
+{{- if (eq .imageIDType "name") }}
+        type: name
+        name: "{{.imageName}}"
+{{ else if (eq .imageIDType "uuid") }}
+        type: uuid
+        uuid: "{{.imageUUID}}"
+{{ end }}
+      cluster:
+{{- if (eq .nutanixPEClusterIDType "name") }}
+        type: name
+        name: "{{.nutanixPEClusterName}}"
+{{- else if (eq .nutanixPEClusterIDType "uuid") }}
+        type: uuid
+        uuid: "{{.nutanixPEClusterUUID}}"
+{{ end }}
+      subnet:
+{{- if (eq .subnetIDType "name") }}
+        - type: name
+          name: "{{.subnetName}}"
+{{- else if (eq .subnetIDType "uuid") }}
+        - type: uuid
+          uuid: "{{.subnetUUID}}"
+{{ end }}
+{{- if .projectIDType}}
+      project:
+{{- if (eq .projectIDType "name") }}
+        type: name
+        name: "{{.projectName}}"
+{{- else if (eq .projectIDType "uuid") }}
+        type: uuid
+        uuid: "{{.projectUUID}}"
+{{ end }}
+{{ end }}
+{{- if .additionalCategories}}
+      additionalCategories:
+{{- range .additionalCategories}}
+        - key:   "{{ .Key }}"
+          value: "{{ .Value }}"
+{{- end }}
+{{- end }}
+{{- if .GPUs }}
+      gpus:
+{{- range .GPUs }}
+{{- if (eq .Type "deviceID") }}
+        - type: deviceID
+          deviceID: {{ .DeviceID }}
+{{- else if (eq .Type "name") }}
+        - type: name
+          name: "{{ .Name }}"
+{{- end }}
+{{- end }}
+{{- end }}
+---
+{{ end -}}
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: "{{.workloadkubeadmconfigTemplateName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  template:
+    spec:
+      preKubeadmCommands:
+{{- if .registryMirrorMap }}
+        - cat /etc/containerd/config_append.toml >> /etc/containerd/config.toml
+{{- end }}
+{{- if or .proxyConfig .registryMirrorMap }}
+        - sudo systemctl daemon-reload
+        - sudo systemctl restart containerd
+{{- end }}
+        - hostnamectl set-hostname "{{`{{ ds.meta_data.hostname }}`}}"
+      joinConfiguration:
+{{- if .kubeletConfiguration }}
+        patches: 
+          directory: /etc/kubernetes/patches
+{{- end }}
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+            # We have to pin the cgroupDriver to cgroupfs as kubeadm >=1.21 defaults to systemd
+            # kind will implement systemd support in: https://github.com/kubernetes-sigs/kind/issues/1726
+            #cgroup-driver: cgroupfs
+{{- if not .kubeletConfiguration }}
+            eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 12 }}
+{{- end }}
+{{- end }}
+{{- if .nodeLabelArgs }}
+{{ .nodeLabelArgs.ToYaml | indent 12 }}
+{{- end }}
+{{- if .workerNodeGroupTaints }}
+          taints:
+ {{- range .workerNodeGroupTaints}}
+            - key: {{ .Key }}
+              value: {{ .Value }}
+              effect: {{ .Effect }}
+ {{- if .TimeAdded }}
+              timeAdded: {{ .TimeAdded }}
+ {{- end }}
+ {{- end }}
+ {{- end }}
+          name: '{{`{{ ds.meta_data.hostname }}`}}'
+      users:
+        - name: "{{.workerSshUsername}}"
+          lockPassword: false
+          sudo: ALL=(ALL) NOPASSWD:ALL
+          sshAuthorizedKeys:
+            - "{{.workerSshAuthorizedKey}}"
+{{- if or (or .proxyConfig .registryMirrorMap) .kubeletConfiguration }}
+      files:
+{{- end }}
+{{- if .kubeletConfiguration }}
+      - content: |
+{{ .kubeletConfiguration | indent 10 }}
+        owner: root:root
+        permissions: "0644"
+        path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.yaml
+{{- end }}
+{{- if .proxyConfig }}
+      - content: |
+          [Service]
+          Environment="HTTP_PROXY={{.httpProxy}}"
+          Environment="HTTPS_PROXY={{.httpsProxy}}"
+          Environment="NO_PROXY={{ stringsJoin .noProxy "," }}"
+        owner: root:root
+        path: /etc/systemd/system/containerd.service.d/http-proxy.conf
+{{- end }}
+{{- if .registryCACert }}
+      - content: |
+{{ .registryCACert | indent 10 }}
+        owner: root:root
+        path: "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+{{- end }}
+{{- if .registryMirrorMap }}
+      - content: |
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+            {{- range $orig, $mirror := .registryMirrorMap }}
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ $orig }}"]
+              endpoint = ["https://{{ $mirror }}"]
+{{- end }}
+{{- if or .registryCACert .insecureSkip }}
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".tls]
+{{- if .registryCACert }}
+              ca_file = "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+{{- end }}
+{{- if .insecureSkip }}
+              insecure_skip_verify = {{ .insecureSkip }}
+{{- end }}
+{{- end }}
+{{- if .registryAuth }}
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".auth]
+              username = "{{.registryUsername}}"
+              password = "{{.registryPassword}}"
+{{- end }}
+        owner: root:root
+        path: "/etc/containerd/config_append.toml"
+{{- end }}

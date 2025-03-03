@@ -2,6 +2,7 @@ apiVersion: anywhere.eks.amazonaws.com/v1alpha1
 kind: Cluster
 metadata:
   name: test
+  namespace: test-namespace
 spec:
   controlPlaneConfiguration:
     count: 3
@@ -16,6 +17,7 @@ spec:
       machineGroupRef:
         name: test-wn
         kind: VSphereMachineConfig
+      name: md-0
   externalEtcdConfiguration:
     count: 3
     machineGroupRef:
@@ -37,8 +39,10 @@ apiVersion: anywhere.eks.amazonaws.com/v1alpha1
 kind: VSphereMachineConfig
 metadata:
   name: test-cp
+  namespace: test-namespace
 spec:
   diskGiB: 25
+  cloneMode: linkedClone
   datastore: "/SDDC-Datacenter/datastore/WorkloadDatastore"
   folder: "/SDDC-Datacenter/vm"
   memoryMiB: 8192
@@ -56,8 +60,10 @@ apiVersion: anywhere.eks.amazonaws.com/v1alpha1
 kind: VSphereMachineConfig
 metadata:
   name: test-wn
+  namespace: test-namespace
 spec:
   diskGiB: 25
+  cloneMode: linkedClone
   datastore: "/SDDC-Datacenter/datastore/WorkloadDatastore"
   folder: "/SDDC-Datacenter/vm"
   memoryMiB: 4096
@@ -75,8 +81,10 @@ apiVersion: anywhere.eks.amazonaws.com/v1alpha1
 kind: VSphereMachineConfig
 metadata:
   name: test-etcd
+  namespace: test-namespace
 spec:
   diskGiB: 25
+  cloneMode: linkedClone
   datastore: "/SDDC-Datacenter/datastore/WorkloadDatastore"
   folder: "/SDDC-Datacenter/vm"
   memoryMiB: 4096
@@ -94,6 +102,7 @@ apiVersion: anywhere.eks.amazonaws.com/v1alpha1
 kind: VSphereDatacenterConfig
 metadata:
   name: test
+  namespace: test-namespace
 spec:
   datacenter: "SDDC-Datacenter"
   network: "/SDDC-Datacenter/network/sddc-cgw-network-1"

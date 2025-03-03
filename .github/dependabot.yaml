@@ -1,0 +1,57 @@
+# Please see the documentation for all configuration options:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+version: 2
+updates:
+# GitHub Actions
+- package-ecosystem: "github-actions"
+  directory: "/"
+  schedule:
+      interval: "weekly"
+  labels:
+    - "dependabot"
+    - "ok-to-test"
+# Main Go module and release module
+# grouped together since frequently updates
+# in main cascade down to the release module.
+- package-ecosystem: "gomod"
+  directories:
+  - "/"
+  - "/release/cli"
+  schedule:
+    interval: "weekly"
+    day: "monday"
+  ## group all dependencies in one PR to avoid churn.
+  groups:
+    all-go-mod-patch-and-minor:
+      patterns: [ "*" ]
+      update-types: [ "patch", "minor" ]
+  ignore:
+  # Ignore CAPI since we have our own fork with a replace.
+  - dependency-name: "sigs.k8s.io/cluster-api"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor",  "version-update:semver-patch" ]
+  # Ignore CAPI test since it should be updated in tandem with CAPI.
+  - dependency-name: "sigs.k8s.io/cluster-api/test"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+  # Ignore CAPC since we have the API structs in tree to reduce dependencies.
+  - dependency-name: "sigs.k8s.io/cluster-api-provider-cloudstack"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch" ]
+  # Ignore tinkerbell since minor versions usually come with breaking changes and it depends on controller-runtime.
+  - dependency-name: "github.com/tinkerbell/cluster-api-provider-tinkerbell"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+  - dependency-name: "github.com/tinkerbell/tink"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+  # Ignore nutanix provider to avoid issues with controller-runtime.
+  - dependency-name: "github.com/nutanix-cloud-native/cluster-api-provider-nutanix"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+  # Ignore vsphere provider to avoid issues with controller-runtime.
+  - dependency-name: "sigs.k8s.io/cluster-api-provider-vsphere"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+  # Ignore controller-runtime as its upgraded manually.
+  - dependency-name: "sigs.k8s.io/controller-runtime"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+   # Ignore k8s and its transitives modules as they are upgraded manually together with controller-runtime.
+  - dependency-name: "k8s.io/*"
+    update-types: [ "version-update:semver-major", "version-update:semver-minor" ]
+  labels:
+    - "dependabot"
+    - "ok-to-test"

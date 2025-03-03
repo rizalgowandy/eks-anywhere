@@ -32,7 +32,7 @@ var validateClusterCmd = &cobra.Command{
 			Name:           clusterName,
 			KubeconfigFile: kubeconfig,
 		}
-		err = validateCluster(cmd.Context(), cluster)
+		err = validateCluster(cmd.Context(), cluster, clusterName)
 		if err != nil {
 			log.Fatalf("Error validating the cluster: %v", err)
 		}
@@ -44,21 +44,22 @@ func init() {
 	rootCmd.AddCommand(validateClusterCmd)
 }
 
-func validateCluster(ctx context.Context, cluster *types.Cluster) error {
-	executableBuilder, err := executables.NewExecutableBuilder(ctx, executables.DefaultEksaImage())
+func validateCluster(ctx context.Context, cluster *types.Cluster, clusterName string) error {
+	executableBuilder, close, err := executables.InitInDockerExecutablesBuilder(ctx, executables.DefaultEksaImage())
 	if err != nil {
 		return fmt.Errorf("unable to initialize executables: %v", err)
 	}
+	defer close.CheckErr(ctx)
 	kubectl := executableBuilder.BuildKubectlExecutable()
 	err = kubectl.ValidateNodes(ctx, cluster.KubeconfigFile)
 	if err != nil {
 		return err
 	}
-	err = kubectl.ValidateControlPlaneNodes(ctx, cluster)
+	err = kubectl.ValidateControlPlaneNodes(ctx, cluster, clusterName)
 	if err != nil {
 		return err
 	}
-	err = kubectl.ValidateWorkerNodes(ctx, cluster)
+	err = kubectl.ValidateWorkerNodes(ctx, clusterName, cluster.KubeconfigFile)
 	if err != nil {
 		return err
 	}

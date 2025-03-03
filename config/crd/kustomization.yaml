@@ -7,9 +7,25 @@ resources:
 - bases/anywhere.eks.amazonaws.com_dockerdatacenterconfigs.yaml
 - bases/anywhere.eks.amazonaws.com_vspheredatacenterconfigs.yaml
 - bases/anywhere.eks.amazonaws.com_vspheremachineconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_cloudstackdatacenterconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_cloudstackmachineconfigs.yaml
 - bases/anywhere.eks.amazonaws.com_bundles.yaml
+- bases/anywhere.eks.amazonaws.com_fluxconfigs.yaml
 - bases/anywhere.eks.amazonaws.com_gitopsconfigs.yaml
 - bases/anywhere.eks.amazonaws.com_oidcconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_awsiamconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_tinkerbelldatacenterconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_tinkerbellmachineconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_tinkerbelltemplateconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_snowdatacenterconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_snowmachineconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_snowippools.yaml
+- bases/anywhere.eks.amazonaws.com_nutanixmachineconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_nutanixdatacenterconfigs.yaml
+- bases/anywhere.eks.amazonaws.com_eksareleases.yaml
+- bases/anywhere.eks.amazonaws.com_controlplaneupgrades.yaml
+- bases/anywhere.eks.amazonaws.com_machinedeploymentupgrades.yaml
+- bases/anywhere.eks.amazonaws.com_nodeupgrades.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

@@ -1,0 +1,71 @@
+---
+apiVersion: getambassador.io/v3alpha1
+kind: Listener
+metadata:
+  name: http-listener
+  namespace: eksa-packages
+spec:
+  port: 8080
+  protocol: HTTPS
+  securityModel: XFP
+  hostBinding:
+    namespace:
+      from: ALL
+---
+apiVersion: getambassador.io/v3alpha1
+kind: Listener
+metadata:
+  name: https-listener
+  namespace: eksa-packages
+spec:
+  port: 8443
+  protocol: HTTPS
+  securityModel: XFP
+  hostBinding:
+    namespace:
+      from: ALL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: eksa-packages
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      containers:
+      - name: hello
+        image: public.ecr.aws/eks-anywhere/hello-eks-anywhere:v0.1.1-f78bf0f83fc6986478cab1336de8c411647c2096
+        ports:
+        - name: http
+          containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: eksa-packages
+spec:
+  ports:
+  - port: 80
+  selector:
+    app: hello
+---
+apiVersion: getambassador.io/v3alpha1
+kind: Mapping
+metadata:
+  name: hello-backend
+  namespace: eksa-packages
+spec:
+  hostname: "*"
+  prefix: /hello
+  service: hello

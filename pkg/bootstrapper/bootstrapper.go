@@ -16,17 +16,17 @@ type Bootstrapper struct {
 }
 
 type ClusterClient interface {
-	CreateBootstrapCluster(ctx context.Context, clusterSpec *cluster.Spec, opts ...BootstrapClusterClientOption) (kubeconfig string, err error)
-	DeleteBootstrapCluster(ctx context.Context, cluster *types.Cluster) error
+	Apply(ctx context.Context, cluster *types.Cluster, data []byte) error
+	CreateNamespace(ctx context.Context, kubeconfig, namespace string) error
+	GetCAPIClusterCRD(ctx context.Context, cluster *types.Cluster) error
+	GetCAPIClusters(ctx context.Context, cluster *types.Cluster) ([]types.CAPICluster, error)
+	KindClusterExists(ctx context.Context, clusterName string) (bool, error)
+	GetKindClusterKubeconfig(ctx context.Context, clusterName string) (string, error)
+	CreateBootstrapCluster(ctx context.Context, clusterSpec *cluster.Spec, opts ...BootstrapClusterClientOption) (string, error)
+	DeleteKindCluster(ctx context.Context, cluster *types.Cluster) error
 	WithExtraDockerMounts() BootstrapClusterClientOption
+	WithExtraPortMappings([]int) BootstrapClusterClientOption
 	WithEnv(env map[string]string) BootstrapClusterClientOption
-	WithDefaultCNIDisabled() BootstrapClusterClientOption
-	ApplyKubeSpecFromBytes(ctx context.Context, cluster *types.Cluster, data []byte) error
-	GetClusters(ctx context.Context, cluster *types.Cluster) ([]types.CAPICluster, error)
-	GetKubeconfig(ctx context.Context, clusterName string) (string, error)
-	ClusterExists(ctx context.Context, clusterName string) (bool, error)
-	ValidateClustersCRD(ctx context.Context, cluster *types.Cluster) error
-	CreateNamespace(ctx context.Context, kubeconfig string, namespace string) error
 }
 
 type (
@@ -34,6 +34,7 @@ type (
 	BootstrapClusterOption       func(b *Bootstrapper) BootstrapClusterClientOption
 )
 
+// New constructs a new bootstrapper.
 func New(clusterClient ClusterClient) *Bootstrapper {
 	return &Bootstrapper{
 		clusterClient: clusterClient,
@@ -43,30 +44,25 @@ func New(clusterClient ClusterClient) *Bootstrapper {
 func (b *Bootstrapper) CreateBootstrapCluster(ctx context.Context, clusterSpec *cluster.Spec, opts ...BootstrapClusterOption) (*types.Cluster, error) {
 	kubeconfigFile, err := b.clusterClient.CreateBootstrapCluster(ctx, clusterSpec, b.getClientOptions(opts)...)
 	if err != nil {
-		return nil, fmt.Errorf("error creating bootstrap cluster: %v, try rerunning with --force-cleanup to force delete previously created bootstrap cluster", err)
+		return nil, fmt.Errorf("creating bootstrap cluster: %v", err)
 	}
 
 	c := &types.Cluster{
-		Name:           clusterSpec.Name,
+		Name:           clusterSpec.Cluster.Name,
 		KubeconfigFile: kubeconfigFile,
 	}
 
-	if err := b.clusterClient.CreateNamespace(ctx, c.KubeconfigFile, constants.EksaSystemNamespace); err != nil {
+	if err = b.clusterClient.CreateNamespace(ctx, c.KubeconfigFile, constants.EksaSystemNamespace); err != nil {
 		return nil, err
-	}
-
-	err = cluster.ApplyExtraObjects(ctx, b.clusterClient, c, clusterSpec)
-	if err != nil {
-		return nil, fmt.Errorf("error applying extra objects to bootstrap cluster: %v", err)
 	}
 
 	return c, nil
 }
 
-func (b *Bootstrapper) DeleteBootstrapCluster(ctx context.Context, cluster *types.Cluster, isUpgrade bool) error {
-	clusterExists, err := b.clusterClient.ClusterExists(ctx, cluster.Name)
+func (b *Bootstrapper) DeleteBootstrapCluster(ctx context.Context, cluster *types.Cluster, operationType constants.Operation, isForceCleanup bool) error {
+	clusterExists, err := b.clusterClient.KindClusterExists(ctx, cluster.Name)
 	if err != nil {
-		return fmt.Errorf("error deleting bootstrap cluster: %v", err)
+		return fmt.Errorf("deleting bootstrap cluster: %v", err)
 	}
 	if !clusterExists {
 		logger.V(4).Info("Skipping delete bootstrap cluster, cluster doesn't exist")
@@ -74,29 +70,29 @@ func (b *Bootstrapper) DeleteBootstrapCluster(ctx context.Context, cluster *type
 	}
 	mgmtCluster, err := b.managementInCluster(ctx, cluster)
 	if err != nil {
-		return fmt.Errorf("error deleting bootstrap cluster: %v", err)
+		return fmt.Errorf("deleting bootstrap cluster: %v", err)
 	}
 
 	if mgmtCluster != nil {
-		if isUpgrade || mgmtCluster.Status.Phase == "Provisioned" {
+		if !isForceCleanup && (operationType == constants.Upgrade || mgmtCluster.Status.Phase == "Provisioned") {
 			return errors.New("error deleting bootstrap cluster: management cluster in bootstrap cluster")
 		}
 	}
 
-	return b.clusterClient.DeleteBootstrapCluster(ctx, cluster)
+	return b.clusterClient.DeleteKindCluster(ctx, cluster)
 }
 
 func (b *Bootstrapper) managementInCluster(ctx context.Context, cluster *types.Cluster) (*types.CAPICluster, error) {
 	if cluster.KubeconfigFile == "" {
-		kubeconfig, err := b.clusterClient.GetKubeconfig(ctx, cluster.Name)
+		kubeconfig, err := b.clusterClient.GetKindClusterKubeconfig(ctx, cluster.Name)
 		if err != nil {
-			return nil, fmt.Errorf("error fetching bootstrap cluster's kubeconfig: %v", err)
+			return nil, fmt.Errorf("fetching bootstrap cluster's kubeconfig: %v", err)
 		}
 		cluster.KubeconfigFile = kubeconfig
 	}
-	err := b.clusterClient.ValidateClustersCRD(ctx, cluster)
+	err := b.clusterClient.GetCAPIClusterCRD(ctx, cluster)
 	if err == nil {
-		clusters, err := b.clusterClient.GetClusters(ctx, cluster)
+		clusters, err := b.clusterClient.GetCAPIClusters(ctx, cluster)
 		if err != nil {
 			return nil, err
 		}
@@ -123,14 +119,14 @@ func WithExtraDockerMounts() BootstrapClusterOption {
 	}
 }
 
-func WithEnv(env map[string]string) BootstrapClusterOption {
+func WithExtraPortMappings(ports []int) BootstrapClusterOption {
 	return func(b *Bootstrapper) BootstrapClusterClientOption {
-		return b.clusterClient.WithEnv(env)
+		return b.clusterClient.WithExtraPortMappings(ports)
 	}
 }
 
-func WithDefaultCNIDisabled() BootstrapClusterOption {
+func WithEnv(env map[string]string) BootstrapClusterOption {
 	return func(b *Bootstrapper) BootstrapClusterClientOption {
-		return b.clusterClient.WithDefaultCNIDisabled()
+		return b.clusterClient.WithEnv(env)
 	}
 }

@@ -1,0 +1,31 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  podSubnet: 1.1.1.1
+  serviceSubnet: 2.2.2.2
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    dns:
+      type: CoreDNS
+      imageRepository: registry-mirror.test:443/eks-distro/coredns
+      imageTag: v1.8.0-eks-1-19-2
+    etcd:
+      local:
+        imageRepository: registry-mirror.test:443/eks-distro/etcd-io
+        imageTag: v3.4.14-eks-1-19-2
+    imageRepository: registry-mirror.test:443/eks-distro/kubernetes
+    kubernetesVersion: v1.19.6-eks-1-19-2
+containerdConfigPatches:
+  - |
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."public.ecr.aws"]
+        endpoint = ["https://registry-mirror.test:443"]
+      [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-mirror.test:443".tls]
+        ca_file = "/etc/containerd/certs.d/registry-mirror.test:443/ca.crt"
+nodes:
+- role: control-plane
+  extraMounts:
+    - containerPath: /etc/containerd/certs.d
+      hostPath: test_cluster/generated/certs.d
+      readOnly: true

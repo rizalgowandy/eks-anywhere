@@ -1,60 +1,41 @@
 package cluster
 
 import (
-	"embed"
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"net/url"
-	"path"
-	"path/filepath"
 	"strings"
 
 	eksdv1alpha1 "github.com/aws/eks-distro-build-tooling/release/api/v1alpha1"
-	"sigs.k8s.io/yaml"
 
 	eksav1alpha1 "github.com/aws/eks-anywhere/pkg/api/v1alpha1"
-	"github.com/aws/eks-anywhere/pkg/semver"
-	"github.com/aws/eks-anywhere/pkg/version"
+	"github.com/aws/eks-anywhere/pkg/types"
 	"github.com/aws/eks-anywhere/release/api/v1alpha1"
 )
 
-const (
-	httpsScheme          = "https"
-	embedScheme          = "embed"
-	FluxDefaultNamespace = "flux-system"
-	FluxDefaultBranch    = "main"
-)
-
-var releasesManifestURL string
-
 type Spec struct {
-	*eksav1alpha1.Cluster
-	OIDCConfig          *eksav1alpha1.OIDCConfig
-	GitOpsConfig        *eksav1alpha1.GitOpsConfig
-	releasesManifestURL string
-	configFS            embed.FS
-	httpClient          *http.Client
-	userAgent           string
-	VersionsBundle      *VersionsBundle
-	eksdRelease         *eksdv1alpha1.Release
-	Bundles             *v1alpha1.Bundles
+	*Config
+	Bundles           *v1alpha1.Bundles
+	OIDCConfig        *eksav1alpha1.OIDCConfig
+	AWSIamConfig      *eksav1alpha1.AWSIamConfig
+	ManagementCluster *types.Cluster // TODO(g-gaston): cleanup, this doesn't belong here
+	EKSARelease       *v1alpha1.EKSARelease
+	VersionsBundles   map[eksav1alpha1.KubernetesVersion]*VersionsBundle
 }
 
-func (cs *Spec) SetDefaultGitOps() {
-	if cs != nil && cs.GitOpsConfig != nil {
-		c := &cs.GitOpsConfig.Spec.Flux
-		if len(c.Github.ClusterConfigPath) == 0 {
-			c.Github.ClusterConfigPath = path.Join("clusters", cs.Name)
-		}
-		if len(c.Github.FluxSystemNamespace) == 0 {
-			c.Github.FluxSystemNamespace = FluxDefaultNamespace
-		}
-
-		if len(c.Github.Branch) == 0 {
-			c.Github.Branch = FluxDefaultBranch
-		}
+func (s *Spec) DeepCopy() *Spec {
+	ns := &Spec{
+		Config:          s.Config.DeepCopy(),
+		OIDCConfig:      s.OIDCConfig.DeepCopy(),
+		AWSIamConfig:    s.AWSIamConfig.DeepCopy(),
+		Bundles:         s.Bundles.DeepCopy(),
+		VersionsBundles: deepCopyVersionsBundles(s.VersionsBundles),
+		EKSARelease:     s.EKSARelease.DeepCopy(),
 	}
+
+	if s.ManagementCluster != nil {
+		ns.ManagementCluster = s.ManagementCluster.DeepCopy()
+	}
+
+	return ns
 }
 
 type VersionsBundle struct {
@@ -62,7 +43,33 @@ type VersionsBundle struct {
 	KubeDistro *KubeDistro
 }
 
+func deepCopyVersionsBundles(v map[eksav1alpha1.KubernetesVersion]*VersionsBundle) map[eksav1alpha1.KubernetesVersion]*VersionsBundle {
+	m := make(map[eksav1alpha1.KubernetesVersion]*VersionsBundle, len(v))
+	for key, val := range v {
+		m[key] = &VersionsBundle{
+			VersionsBundle: val.VersionsBundle.DeepCopy(),
+			KubeDistro:     val.KubeDistro.deepCopy(),
+		}
+	}
+	return m
+}
+
+// EKSD represents an eks-d release.
+type EKSD struct {
+	// Channel is the minor Kubernetes version for the eks-d release (eg. "1.23", "1.24", etc.)
+	Channel string
+	// Number is the monotonically increasing number that distinguishes the different eks-d releases
+	// for the same Kubernetes minor version (channel).
+	Number int
+}
+
+func (k *KubeDistro) deepCopy() *KubeDistro {
+	k2 := *k
+	return &k2
+}
+
 type KubeDistro struct {
+	EKSD                EKSD
 	Kubernetes          VersionedRepository
 	CoreDNS             VersionedRepository
 	Etcd                VersionedRepository
@@ -73,264 +80,138 @@ type KubeDistro struct {
 	Pause               v1alpha1.Image
 	EtcdImage           v1alpha1.Image
 	EtcdVersion         string
+	EtcdURL             string
+	AwsIamAuthImage     v1alpha1.Image
+	KubeProxy           v1alpha1.Image
 }
 
 type VersionedRepository struct {
 	Repository, Tag string
 }
 
-type SpecOpt func(*Spec)
-
-func WithReleasesManifest(manifestURL string) SpecOpt {
-	return func(s *Spec) {
-		s.releasesManifestURL = manifestURL
-	}
-}
-
-func WithEmbedFS(embedFS embed.FS) SpecOpt {
-	return func(s *Spec) {
-		s.configFS = embedFS
-	}
-}
-
-func NewSpec(clusterConfigPath string, cliVersion version.Info, opts ...SpecOpt) (*Spec, error) {
-	clusterConfig, err := eksav1alpha1.GetClusterConfig(clusterConfigPath)
-	if err != nil {
-		return nil, err
-	}
-
-	s := &Spec{
-		releasesManifestURL: releasesManifestURL,
-		configFS:            configFS,
-		httpClient:          &http.Client{},
-		userAgent:           userAgent("cli", cliVersion.GitVersion),
-	}
-	for _, opt := range opts {
-		opt(s)
-	}
-
-	bundles, err := s.getBundles(cliVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	versionsBundle, err := s.getVersionsBundle(clusterConfig, bundles)
-	if err != nil {
-		return nil, err
-	}
-
-	eksd, err := s.getEksdRelease(versionsBundle)
-	if err != nil {
-		return nil, err
-	}
-
-	kubeDistro, err := buildKubeDistro(eksd)
-	if err != nil {
-		return nil, err
-	}
+// NewSpec builds a new [Spec].
+func NewSpec(config *Config, bundles *v1alpha1.Bundles, eksdReleases []eksdv1alpha1.Release, eksaRelease *v1alpha1.EKSARelease) (*Spec, error) {
+	s := &Spec{}
 
 	s.Bundles = bundles
-	s.Cluster = clusterConfig
-	s.VersionsBundle = &VersionsBundle{
-		VersionsBundle: versionsBundle,
-		KubeDistro:     kubeDistro,
+	s.Config = config
+
+	vb, err := getAllVersionsBundles(s.Cluster, bundles, eksdReleases)
+	if err != nil {
+		return nil, err
 	}
-	s.eksdRelease = eksd
-	if len(s.Cluster.Spec.IdentityProviderRefs) != 0 {
-		// Since we only support one configuration, and only OIDCConfig, for identityProviderRefs, it is safe to assume that
-		// it is the only element that exists in the array
-		oidcConfig, err := eksav1alpha1.GetAndValidateOIDCConfig(clusterConfigPath, s.Cluster.Spec.IdentityProviderRefs[0].Name)
-		if err != nil {
-			return nil, err
-		}
-		s.OIDCConfig = oidcConfig
+	s.VersionsBundles = vb
+	s.EKSARelease = eksaRelease
+
+	// Get first aws iam config if it exists
+	// Config supports multiple configs because Cluster references a slice
+	// But we validate that only one of each type is referenced
+	for _, ac := range s.Config.AWSIAMConfigs {
+		s.AWSIamConfig = ac
+		break
 	}
 
-	if s.Cluster.Spec.GitOpsRef != nil {
-		gitOpsConfig, err := eksav1alpha1.GetAndValidateGitOpsConfig(clusterConfigPath, s.Cluster.Spec.GitOpsRef.Name)
-		if err != nil {
-			return nil, err
-		}
-		s.GitOpsConfig = gitOpsConfig
+	// Get first oidc config if it exists
+	for _, oc := range s.Config.OIDCConfigs {
+		s.OIDCConfig = oc
+		break
 	}
-	s.SetDefaultGitOps()
 
 	return s, nil
 }
 
-func BuildSpecFromBundles(cluster *eksav1alpha1.Cluster, bundles *v1alpha1.Bundles, opts ...SpecOpt) (*Spec, error) {
-	err := eksav1alpha1.ValidateClusterConfigContent(cluster)
-	if err != nil {
-		return nil, err
-	}
-	s := &Spec{
-		releasesManifestURL: releasesManifestURL,
-		configFS:            configFS,
-		httpClient:          &http.Client{},
-		userAgent:           userAgent("unknown", "unknown"),
-	}
-	for _, opt := range opts {
-		opt(s)
+func getAllVersionsBundles(cluster *eksav1alpha1.Cluster, bundles *v1alpha1.Bundles, eksdReleases []eksdv1alpha1.Release) (map[eksav1alpha1.KubernetesVersion]*VersionsBundle, error) {
+	if len(eksdReleases) < 1 {
+		return nil, fmt.Errorf("no eksd releases were found")
 	}
 
-	versionsBundle, err := s.getVersionsBundle(cluster, bundles)
-	if err != nil {
-		return nil, err
-	}
+	m := make(map[eksav1alpha1.KubernetesVersion]*VersionsBundle, len(eksdReleases))
 
-	eksd, err := s.getEksdRelease(versionsBundle)
-	if err != nil {
-		return nil, err
-	}
+	for _, eksd := range eksdReleases {
+		channel := strings.Replace(eksd.Spec.Channel, "-", ".", 1)
+		version := eksav1alpha1.KubernetesVersion(channel)
 
-	kubeDistro, err := buildKubeDistro(eksd)
-	if err != nil {
-		return nil, err
-	}
-
-	s.Bundles = bundles
-	s.Cluster = cluster
-	s.VersionsBundle = &VersionsBundle{
-		VersionsBundle: versionsBundle,
-		KubeDistro:     kubeDistro,
-	}
-	s.eksdRelease = eksd
-	return s, nil
-}
-
-func (s *Spec) getVersionsBundle(clusterConfig *eksav1alpha1.Cluster, bundles *v1alpha1.Bundles) (*v1alpha1.VersionsBundle, error) {
-	for _, versionsBundle := range bundles.Spec.VersionsBundles {
-		if versionsBundle.KubeVersion == string(clusterConfig.Spec.KubernetesVersion) {
-			return &versionsBundle, nil
+		if _, ok := m[version]; ok {
+			continue
 		}
-	}
-	return nil, fmt.Errorf("kubernetes version %s is not supported by bundles manifest %d", clusterConfig.Spec.KubernetesVersion, bundles.Spec.Number)
-}
 
-func (s *Spec) getBundles(cliVersion version.Info) (*v1alpha1.Bundles, error) {
-	release, err := s.getRelease(cliVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	content, err := s.readFile(release.BundleManifestUrl)
-	if err != nil {
-		return nil, err
-	}
-
-	bundles := &v1alpha1.Bundles{}
-	if err = yaml.Unmarshal(content, bundles); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal bundles manifest from [%s] to build cluster spec: %v", release.BundleManifestUrl, err)
-	}
-
-	return bundles, nil
-}
-
-func (s *Spec) getRelease(cliVersion version.Info) (*v1alpha1.EksARelease, error) {
-	cliSemVersion, err := semver.New(cliVersion.GitVersion)
-	if err != nil {
-		return nil, fmt.Errorf("invalid cli version: %v", err)
-	}
-
-	releases, err := s.getReleases(s.releasesManifestURL)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, release := range releases.Spec.Releases {
-		releaseVersion, err := semver.New(release.Version)
+		versionBundle, err := getVersionBundles(version, bundles, &eksd)
 		if err != nil {
-			return nil, fmt.Errorf("invalid version for release %d: %v", release.Number, err)
+			return nil, err
 		}
 
-		if cliSemVersion.SamePrerelease(releaseVersion) {
-			return &release, nil
-		}
+		m[version] = versionBundle
 	}
 
-	return nil, fmt.Errorf("eksa release %s does not exist in manifest %s", cliVersion, s.releasesManifestURL)
+	return m, nil
 }
 
-func (s *Spec) getReleases(releasesManifest string) (*v1alpha1.Release, error) {
-	content, err := s.readFile(releasesManifest)
+func getVersionBundles(version eksav1alpha1.KubernetesVersion, b *v1alpha1.Bundles, eksdRelease *eksdv1alpha1.Release) (*VersionsBundle, error) {
+	v, err := GetVersionsBundle(version, b)
 	if err != nil {
 		return nil, err
 	}
 
-	releases := &v1alpha1.Release{}
-	if err = yaml.Unmarshal(content, releases); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal release manifest to build cluster spec: %v", err)
+	kd, err := buildKubeDistro(eksdRelease)
+	if err != nil {
+		return nil, err
 	}
 
-	return releases, nil
+	vb := &VersionsBundle{
+		VersionsBundle: v,
+		KubeDistro:     kd,
+	}
+
+	return vb, nil
 }
 
-func (s *Spec) readFile(uri string) ([]byte, error) {
-	url, err := url.Parse(uri)
-	if err != nil {
-		return nil, fmt.Errorf("can't build cluster spec, invalid release manifest url: %v", err)
+// VersionsBundle returns a VersionsBundle if one exists for the provided kubernetes version and nil otherwise.
+func (s *Spec) VersionsBundle(version eksav1alpha1.KubernetesVersion) *VersionsBundle {
+	vb, ok := s.VersionsBundles[version]
+	if !ok {
+		return nil
 	}
 
-	switch url.Scheme {
-	case httpsScheme:
-		return s.readHttpFile(uri)
-	case embedScheme:
-		return s.readEmbedFile(url)
-	default:
-		return readLocalFile(uri)
-	}
+	return vb
 }
 
-func (s *Spec) readHttpFile(uri string) ([]byte, error) {
-	request, err := http.NewRequest("GET", uri, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed creating http GET request for downloading file: %v", err)
-	}
-
-	request.Header.Set("User-Agent", s.userAgent)
-	resp, err := s.httpClient.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed reading file from url [%s] for cluster spec: %v", uri, err)
-	}
-	defer resp.Body.Close()
-
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed reading file from url [%s] for cluster spec: %v", uri, err)
-	}
-
-	return data, nil
+// RootVersionsBundle returns a VersionsBundle for the Cluster objects root Kubernetes versions.
+func (s *Spec) RootVersionsBundle() *VersionsBundle {
+	return s.VersionsBundle(s.Cluster.Spec.KubernetesVersion)
 }
 
-func (s *Spec) readEmbedFile(url *url.URL) ([]byte, error) {
-	data, err := s.configFS.ReadFile(strings.TrimPrefix(url.Path, "/"))
-	if err != nil {
-		return nil, fmt.Errorf("failed reading embed file [%s] for cluster spec: %v", url.Path, err)
+// WorkerNodeGroupVersionsBundle returns a VersionsBundle for the Worker Node's kubernetes version.
+func (s *Spec) WorkerNodeGroupVersionsBundle(w eksav1alpha1.WorkerNodeGroupConfiguration) *VersionsBundle {
+	if w.KubernetesVersion != nil {
+		return s.VersionsBundle(*w.KubernetesVersion)
 	}
-
-	return data, nil
-}
-
-func readLocalFile(filename string) ([]byte, error) {
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed reading local file [%s] for cluster spec: %v", filename, err)
-	}
-
-	return data, nil
+	return s.RootVersionsBundle()
 }
 
 func buildKubeDistro(eksd *eksdv1alpha1.Release) (*KubeDistro, error) {
-	kubeDistro := &KubeDistro{}
+	kubeDistro := &KubeDistro{
+		EKSD: EKSD{
+			Channel: eksd.Spec.Channel,
+			Number:  eksd.Spec.Number,
+		},
+	}
 	assets := make(map[string]*eksdv1alpha1.AssetImage)
 	for _, component := range eksd.Status.Components {
 		for _, asset := range component.Assets {
 			if asset.Image != nil {
 				assets[asset.Name] = asset.Image
 			}
-		}
-		if component.Name == "etcd" {
-			kubeDistro.EtcdVersion = strings.TrimPrefix(component.GitTag, "v")
+
+			if component.Name == "etcd" {
+				kubeDistro.EtcdVersion = strings.TrimPrefix(component.GitTag, "v")
+
+				// Get archive uri for amd64
+				if asset.Archive != nil && len(asset.Arch) > 0 {
+					if asset.Arch[0] == "amd64" {
+						kubeDistro.EtcdURL = asset.Archive.URI
+					}
+				}
+			}
 		}
 	}
 
@@ -341,6 +222,8 @@ func buildKubeDistro(eksd *eksdv1alpha1.Release) (*KubeDistro, error) {
 		"external-provisioner-image":  &kubeDistro.ExternalProvisioner,
 		"pause-image":                 &kubeDistro.Pause,
 		"etcd-image":                  &kubeDistro.EtcdImage,
+		"aws-iam-authenticator-image": &kubeDistro.AwsIamAuthImage,
+		"kube-proxy-image":            &kubeDistro.KubeProxy,
 	}
 
 	for assetName, image := range kubeDistroComponents {
@@ -383,63 +266,6 @@ func kubeDistroRepository(image *eksdv1alpha1.AssetImage) (repo, tag string) {
 	return i.Image()[:lastInd], i.Tag()
 }
 
-func (s *Spec) getEksdRelease(versionsBundle *v1alpha1.VersionsBundle) (*eksdv1alpha1.Release, error) {
-	content, err := s.readFile(versionsBundle.EksD.EksDReleaseUrl)
-	if err != nil {
-		return nil, err
-	}
-
-	eksd := &eksdv1alpha1.Release{}
-	if err = yaml.Unmarshal(content, eksd); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal eksd manifest to build cluster spec: %v", err)
-	}
-
-	return eksd, nil
-}
-
-func GetEksdRelease(cliVersion version.Info, clusterConfig *eksav1alpha1.Cluster) (*v1alpha1.EksDRelease, error) {
-	s := &Spec{
-		releasesManifestURL: releasesManifestURL,
-		configFS:            configFS,
-		httpClient:          &http.Client{},
-		userAgent:           userAgent("cli", cliVersion.GitVersion),
-	}
-
-	bundles, err := s.getBundles(cliVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	versionsBundle, err := s.getVersionsBundle(clusterConfig, bundles)
-	if err != nil {
-		return nil, err
-	}
-
-	return &versionsBundle.EksD, nil
-}
-
-type Manifest struct {
-	Filename string
-	Content  []byte
-}
-
-func (s *Spec) LoadManifest(manifest v1alpha1.Manifest) (*Manifest, error) {
-	url, err := url.Parse(manifest.URI)
-	if err != nil {
-		return nil, fmt.Errorf("invalid manifest URI: %v", err)
-	}
-
-	content, err := s.readFile(manifest.URI)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load manifest: %v", err)
-	}
-
-	return &Manifest{
-		Filename: filepath.Base(url.Path),
-		Content:  content,
-	}, nil
-}
-
-func userAgent(eksAComponent, version string) string {
-	return fmt.Sprintf("eks-a-%s/%s", eksAComponent, version)
+func (vb *VersionsBundle) Ovas() []v1alpha1.Archive {
+	return vb.VersionsBundle.Ovas()
 }

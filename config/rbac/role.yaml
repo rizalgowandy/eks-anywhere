@@ -1,19 +1,66 @@
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: manager-role
 rules:
 - apiGroups:
-  - anywhere.eks.amazonaws.com
+  - ""
   resources:
-  - bundles
-  - clusters
-  - dockerdatacenterconfigs
-  - vspheredatacenterconfigs
-  - vspheremachineconfigs
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - addons.cluster.x-k8s.io
+  resources:
+  - clusterresourcesets
   verbs:
   - create
   - delete
@@ -25,9 +72,47 @@ rules:
 - apiGroups:
   - anywhere.eks.amazonaws.com
   resources:
+  - awsiamconfigs
+  - cloudstackdatacenterconfigs
+  - cloudstackmachineconfigs
+  - clusters
+  - dockerdatacenterconfigs
+  - fluxconfigs
+  - gitopsconfigs
+  - nutanixdatacenterconfigs
+  - nutanixmachineconfigs
+  - oidcconfigs
+  - snowdatacenterconfigs
+  - snowippools
+  - snowmachineconfigs
+  - tinkerbelldatacenterconfigs
+  - tinkerbellmachineconfigs
+  - tinkerbelltemplateconfigs
+  - vspheredatacenterconfigs
+  - vspheremachineconfigs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - anywhere.eks.amazonaws.com
+  resources:
+  - awsiamconfigs/finalizers
   - bundles/finalizers
+  - cloudstackdatacenterconfigs/finalizers
+  - cloudstackmachineconfigs/finalizers
   - clusters/finalizers
+  - controlplaneupgrades/finalizers
   - dockerdatacenterconfigs/finalizers
+  - machinedeploymentupgrades/finalizers
+  - nodeupgrades/finalizers
+  - snowippools/finalizers
+  - snowmachineconfigs/finalizers
+  - tinkerbelldatacenterconfigs/finalizers
+  - tinkerbellmachineconfigs/finalizers
+  - tinkerbelltemplateconfigs/finalizers
   - vspheredatacenterconfigs/finalizers
   - vspheremachineconfigs/finalizers
   verbs:
@@ -35,12 +120,255 @@ rules:
 - apiGroups:
   - anywhere.eks.amazonaws.com
   resources:
-  - bundles/status
+  - awsiamconfigs/status
+  - cloudstackdatacenterconfigs/status
+  - cloudstackmachineconfigs/status
   - clusters/status
+  - controlplaneupgrades/status
   - dockerdatacenterconfigs/status
+  - machinedeploymentupgrades/status
+  - nodeupgrades/status
+  - snowippools/status
+  - snowmachineconfigs/status
+  - tinkerbelldatacenterconfigs/status
+  - tinkerbellmachineconfigs/status
+  - tinkerbelltemplateconfigs/status
   - vspheredatacenterconfigs/status
   - vspheremachineconfigs/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - anywhere.eks.amazonaws.com
+  resources:
+  - bundles
+  - eksareleases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - anywhere.eks.amazonaws.com
+  resources:
+  - controlplaneupgrades
+  - machinedeploymentupgrades
+  - nodeupgrades
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - bmc.tinkerbell.org
+  resources:
+  - machines
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - bootstrap.cluster.x-k8s.io
+  resources:
+  - kubeadmconfigs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - bootstrap.cluster.x-k8s.io
+  resources:
+  - kubeadmconfigtemplates
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  - machinedeployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machinedeployment
+  - machines
+  - machinesets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machinedeployment/status
+  verbs:
+  - get
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machinehealthchecks
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - clusterctl.cluster.x-k8s.io
+  resources:
+  - providers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - kubeadmcontrolplane
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - kubeadmcontrolplane/status
+  verbs:
+  - get
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - kubeadmcontrolplanes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - distro.eks.amazonaws.com
+  resources:
+  - releases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - etcdcluster.cluster.x-k8s.io
+  resources:
+  - '*'
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - awssnowclusters
+  - awssnowippools
+  - awssnowmachinetemplates
+  - cloudstackclusters
+  - cloudstackmachinetemplates
+  - dockerclusters
+  - dockermachinetemplates
+  - nutanixclusters
+  - nutanixmachinetemplates
+  - tinkerbellclusters
+  - tinkerbellmachinetemplates
+  - vsphereclusters
+  - vspheredeploymentzones
+  - vspherefailuredomains
+  - vspheremachinetemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tinkerbellmachines
+  - vspheremachines
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+- apiGroups:
+  - packages.eks.amazonaws.com
+  resources:
+  - packages
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - tinkerbell.org
+  resources:
+  - hardware
+  verbs:
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manager-role
+  namespace: eksa-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - packages.eks.amazonaws.com
+  resources:
+  - packagebundlecontrollers
+  verbs:
+  - delete

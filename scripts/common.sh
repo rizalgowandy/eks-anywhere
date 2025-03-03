@@ -13,21 +13,89 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+function build::common::ensure_tar() {
+  if [[ -n "${TAR:-}" ]]; then
+    return
+  fi
+
+  # Find gnu tar if it is available, bomb out if not.
+  TAR=tar
+  if which gtar &>/dev/null; then
+      TAR=gtar
+  elif which gnutar &>/dev/null; then
+      TAR=gnutar
+  fi
+  if ! "${TAR}" --version | grep -q GNU; then
+    echo "  !!! Cannot find GNU tar. Build on Linux or install GNU tar"
+    echo "      on Mac OS X (brew install gnu-tar)."
+    return 1
+  fi
+}
+
+# Build a release tarball.  $1 is the output tar name.  $2 is the base directory
+# of the files to be packaged.  This assumes that ${2}/kubernetes is what is
+# being packaged.
+function build::common::create_tarball() {
+  build::common::ensure_tar
+
+  local -r tarfile=$1
+  local -r stagingdir=$2
+  local -r repository=$3
+
+  "${TAR}" czf "${tarfile}" -C "${stagingdir}" $repository --owner=0 --group=0
+}
+
+# Generate shasum of tarballs. $1 is the directory of the tarballs.
+function build::common::generate_shasum() {
+
+  local -r tarpath=$1
+
+  echo "Writing artifact hashes to shasum files..."
+
+  if [ ! -d "$tarpath" ]; then
+    echo "  Unable to find tar directory $tarpath"
+    exit 1
+  fi
+
+  cd $tarpath
+  for file in $(find . -name '*.tar.gz'); do
+    filepath=$(basename $file)
+    sha256sum "$filepath" > "$file.sha256"
+    sha512sum "$filepath" > "$file.sha512"
+  done
+  cd -
+}
+
+function build::common::upload_artifacts() {
+  local -r artifactspath=$1
+  local -r artifactsbucket=$2
+  local -r projectpath=$3
+  local -r buildidentifier=$4
+  local -r githash=$5
+  local -r latestpath=$6
+
+  echo "$githash" >> "$artifactspath"/githash
+
+  # Upload artifacts to s3
+  # 1. To proper path on s3 with buildId-githash
+  # 2. Latest path to indicate the latest build, with --delete option to delete stale files in the dest path
+  aws s3 sync "$artifactspath" "$artifactsbucket"/"$projectpath"/"$buildidentifier"-"$githash"/artifacts --acl public-read
+  aws s3 sync "$artifactspath" "$artifactsbucket"/"$projectpath"/"$latestpath" --delete --acl public-read
+}
+
 function build::gather_licenses() {
+  local -r golang_version=$1
+
+  build::common::use_go_version $golang_version
   if ! command -v go-licenses &> /dev/null
   then
-    echo " go-licenses not found.  If you need license or attribtuion file handling"
-    echo " please refer to the doc in docs/development/attribution-files.md"
+    echo "go-licenses not found"
     exit
   fi
 
-  local -r outputdir=$1
-  local -r patterns=$2
+  local -r outputdir=$2
+  local -r patterns=$3
 
-  # reset the gopath change to make sure and always use
-  # the latest go for generating deps list
-  # older versions behave differently in some cases
-  build::common::remove_go_path
 
   # Force deps to only be pulled form vendor directories
   # this is important in a couple cases where license files
@@ -111,29 +179,11 @@ function build::common::remove_go_path() {
 
 function build::common::get_go_path() {
   local -r version=$1
-  local gobinaryversion=""
-
-  if [[ $version == "1.13"* ]]; then
-    gobinaryversion="1.13"
-  fi
-  if [[ $version == "1.14"* ]]; then
-    gobinaryversion="1.14"
-  fi
-  if [[ $version == "1.15"* ]]; then
-    gobinaryversion="1.15"
-  fi
-  if [[ $version == "1.16"* ]]; then
-    gobinaryversion="1.16"
-  fi
-
-  if [[ "$gobinaryversion" == "" ]]; then
-    return
-  fi
 
   # This is the path where the specific go binary versions reside in our builder-base image
-  local -r gorootbinarypath="/go/go${gobinaryversion}/bin"
+  local -r gorootbinarypath="/go/go${version}/bin"
   # This is the path that will most likely be correct if running locally
-  local -r gopathbinarypath="$GOPATH/go${gobinaryversion}/bin"
+  local -r gopathbinarypath="$GOPATH/go${version}/bin"
   if [ -d "$gorootbinarypath" ]; then
     echo $gorootbinarypath
   elif [ -d "$gopathbinarypath" ]; then
@@ -158,4 +208,36 @@ function build::common::use_go_version() {
 function build::common::re_quote() {
     local -r to_escape=$1
     sed 's/[][()\.^$\/?*+]/\\&/g' <<< "$to_escape"
+}
+
+# This function returns all release branches of EKS Anywhere from GitHub.
+function build::common::get_release_branches() {
+  echo "$(git ls-remote https://github.com/aws/eks-anywhere.git | grep -oE 'refs/heads/release-[0-9]+\.[0-9]+' | xargs -I_ echo _ | cut -d/ -f3)"
+}
+
+# This function returns the two latest release branches of EKS Anywhere,
+# that is, release branches for versions N and N-1 in that order.
+function build::common::get_latest_release_branches() {
+  local -r release_branches=("$@")
+
+  latest_minor=0
+  for branch in "${release_branches[@]}"; do
+    minor_version=${branch##release-0.}
+    if [ $minor_version -gt $latest_minor ] && [ "$(build::common::get_latest_release_for_release_branch $branch)" != "" ]; then
+      latest_minor=$minor_version
+    fi
+  done
+
+  echo "release-0.${latest_minor} release-0.$(($latest_minor-1))"
+}
+
+# This function returns the latest release version for the given release branch
+# by parsing the EKS Anywhere releases manifest.
+function build::common::get_latest_release_for_release_branch() {
+  release_branch=$1
+
+  minor_version="v${release_branch##release-}"
+  latest_release=$(curl --silent "https://anywhere-assets.eks.amazonaws.com/releases/eks-a/manifest.yaml" | yq ".spec.releases[].version" | grep $minor_version | tail -1)
+
+  echo $latest_release
 }

@@ -1,0 +1,22 @@
+{
+    "apiVersion": "addons.cluster.x-k8s.io/v1beta1",
+    "kind": "ClusterResourceSet", 
+    "spec": {
+        "clusterSelector": {
+            "matchLabels": {
+                "cluster.x-k8s.io/cluster-name": "cluster-1"
+            }
+        },
+        "resources": [
+            {
+                "kind": "Secret",
+                "name": "vsphere-cloud-controller-manager"
+            },
+            {
+                "kind": "ConfigMap",
+                "name": "vsphere-cloud-controller-manager-role"
+            }  
+        ],
+        "strategy": "ApplyOnce"
+    } 
+}

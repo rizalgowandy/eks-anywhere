@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -14,14 +13,18 @@ import (
 )
 
 const (
-	amiIdFlagName           = "ami-id"
-	storageBucketFlagName   = "storage-bucket"
-	jobIdFlagName           = "job-id"
-	instanceProfileFlagName = "instance-profile-name"
-	subnetIdFlagName        = "subnet-id"
-	regexFlagName           = "regex"
-	maxInstancesFlagName    = "max-instances"
-	skipFlagName            = "skip"
+	storageBucketFlagName      = "storage-bucket"
+	jobIdFlagName              = "job-id"
+	instanceProfileFlagName    = "instance-profile-name"
+	regexFlagName              = "regex"
+	maxConcurrentTestsFlagName = "max-concurrent-tests"
+	skipFlagName               = "skip"
+	bundlesOverrideFlagName    = "bundles-override"
+	cleanupResourcesFlagName   = "cleanup-resources"
+	testReportFolderFlagName   = "test-report-folder"
+	branchNameFlagName         = "branch-name"
+	instanceConfigFlagName     = "instance-config"
+	stageFlagName              = "stage"
 )
 
 var runE2ECmd = &cobra.Command{
@@ -31,7 +34,7 @@ var runE2ECmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRun:       preRunSetup,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		err := runE2E(cmd.Context())
+		err := runE2E()
 		if err != nil {
 			logger.Fatal(err, "Failed to run e2e test")
 		}
@@ -39,7 +42,7 @@ var runE2ECmd = &cobra.Command{
 	},
 }
 
-var requiredFlags = []string{amiIdFlagName, storageBucketFlagName, jobIdFlagName, instanceProfileFlagName}
+var requiredFlags = []string{instanceConfigFlagName, storageBucketFlagName, jobIdFlagName, instanceProfileFlagName}
 
 func preRunSetup(cmd *cobra.Command, args []string) {
 	cmd.Flags().VisitAll(func(flag *pflag.Flag) {
@@ -52,14 +55,18 @@ func preRunSetup(cmd *cobra.Command, args []string) {
 
 func init() {
 	integrationTestCmd.AddCommand(runE2ECmd)
-	runE2ECmd.Flags().StringP(amiIdFlagName, "a", "", "Ami id")
+	runE2ECmd.Flags().StringP(instanceConfigFlagName, "c", "", "File path to the instance-config.yml config")
 	runE2ECmd.Flags().StringP(storageBucketFlagName, "s", "", "S3 bucket name to store eks-a binary")
 	runE2ECmd.Flags().StringP(jobIdFlagName, "j", "", "Id of the job being run")
-	runE2ECmd.Flags().StringP(instanceProfileFlagName, "i", "", "IAM instance profile name to attach to ec2 instances")
-	runE2ECmd.Flags().StringP(subnetIdFlagName, "n", "", "EC2 subnet ID")
+	runE2ECmd.Flags().StringP(instanceProfileFlagName, "i", "", "IAM instance profile name to attach to ssm instances")
 	runE2ECmd.Flags().StringP(regexFlagName, "r", "", "Run only those tests and examples matching the regular expression. Equivalent to go test -run")
-	runE2ECmd.Flags().IntP(maxInstancesFlagName, "m", 1, "Run tests in parallel with multiple EC2 instances")
+	runE2ECmd.Flags().IntP(maxConcurrentTestsFlagName, "p", 1, "Maximum number of parallel tests that can be run at a time")
 	runE2ECmd.Flags().StringSlice(skipFlagName, nil, "List of tests to skip")
+	runE2ECmd.Flags().Bool(bundlesOverrideFlagName, false, "Flag to indicate if the tests should run with a bundles override")
+	runE2ECmd.Flags().Bool(cleanupResourcesFlagName, false, "Flag to indicate if test resources should be cleaned up automatically as tests complete")
+	runE2ECmd.Flags().String(testReportFolderFlagName, "", "Folder destination for JUnit tests reports")
+	runE2ECmd.Flags().String(branchNameFlagName, "main", "EKS-A origin branch from where the tests are being run")
+	runE2ECmd.Flags().String(stageFlagName, "dev", "Flag to indicate the stage the pipeline from where the tests are being triggered")
 
 	for _, flag := range requiredFlags {
 		if err := runE2ECmd.MarkFlagRequired(flag); err != nil {
@@ -68,30 +75,39 @@ func init() {
 	}
 }
 
-func runE2E(ctx context.Context) error {
-	amiId := viper.GetString(amiIdFlagName)
+func runE2E() error {
+	instanceConfigFile := viper.GetString(instanceConfigFlagName)
 	storageBucket := viper.GetString(storageBucketFlagName)
 	jobId := viper.GetString(jobIdFlagName)
 	instanceProfileName := viper.GetString(instanceProfileFlagName)
-	subnetId := viper.GetString(subnetIdFlagName)
 	testRegex := viper.GetString(regexFlagName)
-	maxInstances := viper.GetInt(maxInstancesFlagName)
+	maxConcurrentTests := viper.GetInt(maxConcurrentTestsFlagName)
 	testsToSkip := viper.GetStringSlice(skipFlagName)
+	bundlesOverride := viper.GetBool(bundlesOverrideFlagName)
+	cleanupResources := viper.GetBool(cleanupResourcesFlagName)
+	testReportFolder := viper.GetString(testReportFolderFlagName)
+	branchName := viper.GetString(branchNameFlagName)
+	stage := viper.GetString(stageFlagName)
 
 	runConf := e2e.ParallelRunConf{
-		MaxInstances:        maxInstances,
-		AmiId:               amiId,
-		InstanceProfileName: instanceProfileName,
-		StorageBucket:       storageBucket,
-		JobId:               jobId,
-		SubnetId:            subnetId,
-		Regex:               testRegex,
-		TestsToSkip:         testsToSkip,
+		MaxConcurrentTests:     maxConcurrentTests,
+		InstanceProfileName:    instanceProfileName,
+		StorageBucket:          storageBucket,
+		JobId:                  jobId,
+		Regex:                  testRegex,
+		TestsToSkip:            testsToSkip,
+		BundlesOverride:        bundlesOverride,
+		CleanupResources:       cleanupResources,
+		TestReportFolder:       testReportFolder,
+		BranchName:             branchName,
+		TestInstanceConfigFile: instanceConfigFile,
+		Logger:                 logger.Get(),
+		Stage:                  stage,
 	}
 
 	err := e2e.RunTestsInParallel(runConf)
 	if err != nil {
-		return fmt.Errorf("error running e2e tests: %v", err)
+		return fmt.Errorf("running e2e tests: %v", err)
 	}
 
 	return nil

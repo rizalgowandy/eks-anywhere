@@ -10,12 +10,13 @@ spec:
     machineGroupRef:
       name: eksa-unit-test
       kind: VSphereMachineConfig
-  kubernetesVersion: "1.20"
+  kubernetesVersion: 1.20
   workerNodeGroupConfigurations:
     - count: 3
       machineGroupRef:
         name: eksa-unit-test
         kind: VSphereMachineConfig
+      name: "md-0"
   datacenterRef:
     kind: VSphereDatacenterConfig
     name: eksa-unit-test

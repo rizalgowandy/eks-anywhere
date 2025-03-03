@@ -1,0 +1,218 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: {{.clusterName}}
+    pool: {{.workerNodeGroupName}}
+  name: {{.clusterName}}-{{.workerNodeGroupName}}
+  namespace: {{.eksaSystemNamespace}}
+{{- if .autoscalingConfig }}
+  annotations:
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "{{ .autoscalingConfig.MinCount }}"
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "{{ .autoscalingConfig.MaxCount }}"
+{{- end }}
+spec:
+  clusterName: {{.clusterName}}
+{{- if not .autoscalingConfig }}
+  replicas: {{.workerReplicas}}
+{{- end }}
+  selector:
+    matchLabels: {}
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: {{.clusterName}}
+        pool: {{.workerNodeGroupName}}
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: {{.workloadkubeadmconfigTemplateName}}
+      clusterName: {{.clusterName}}
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: TinkerbellMachineTemplate
+        name: {{.workloadTemplateName}}
+      version: {{.kubernetesVersion}}
+{{- if .upgradeRolloutStrategy }}
+  strategy:
+{{- if (eq .upgradeRolloutStrategyType "InPlace") }}
+    type: {{.upgradeRolloutStrategyType}}
+{{- else}}
+    rollingUpdate:
+      maxSurge: {{.maxSurge}}
+      maxUnavailable: {{.maxUnavailable}}
+{{- end }}
+{{- end }}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: TinkerbellMachineTemplate
+metadata:
+  name: {{.workloadTemplateName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  template:
+    {{- if and .workertemplateOverride (ne .format "")}}
+    spec:
+      hardwareAffinity:
+        required:
+        - labelSelector:
+            matchLabels: {{ range $key, $value := .hardwareSelector}}
+              {{ $key }}: {{ $value}}
+            {{- end }}
+      bootOptions:
+        bootMode: {{.bootMode}}
+        {{- if .isoUrl }}
+        isoURL: {{.isoUrl}}
+        {{- end }}
+      templateOverride: |
+{{.workertemplateOverride | indent 8}}
+    {{- end}}
+    {{- if (eq .workertemplateOverride "") }}
+    spec: {}
+    {{- end }}
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: {{.workloadkubeadmconfigTemplateName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  template:
+    spec:
+      joinConfiguration:
+{{- if .kubeletConfiguration }}
+        patches:
+          directory: /etc/kubernetes/patches
+{{- end }}
+{{- if (eq .format "bottlerocket") }}
+        pause:
+          imageRepository: {{.pauseRepository}}
+          imageTag: {{.pauseVersion}}
+        bottlerocketBootstrap:
+          imageRepository: {{.bottlerocketBootstrapRepository}}
+          imageTag: {{.bottlerocketBootstrapVersion}}
+{{- end }}
+{{- if and .proxyConfig (eq .format "bottlerocket") }}
+        proxy:
+          httpsProxy: {{.httpsProxy}}
+          noProxy: {{ range .noProxy }}
+            - {{ . }}
+          {{- end }}
+{{- end }}
+{{- if and .registryMirrorMap (eq .format "bottlerocket") }}
+        registryMirror:
+          endpoint: {{ .publicMirror }}
+          {{- if .registryCACert }}
+          caCert: |
+{{ .registryCACert | indent 12 }}
+          {{- end }}
+{{- end }}
+{{- if .bottlerocketSettings }}
+{{ .bottlerocketSettings | indent 8 }}
+{{- end }}
+{{- if .certBundles }}
+        certBundles:
+        {{- range .certBundles }}
+        - name: "{{ .Name }}"
+          data: |
+{{ .Data | indent 12 }}
+          {{- end }}
+{{- end}}
+        nodeRegistration:
+{{- if .workerNodeGroupTaints }}
+          taints:
+{{- range .workerNodeGroupTaints}}
+            - key: {{ .Key }}
+              value: {{ .Value }}
+              effect: {{ .Effect }}
+{{- if .TimeAdded }}
+              timeAdded: {{ .TimeAdded }}
+{{- end }}
+{{- end }}
+{{- end }}
+          kubeletExtraArgs:
+            provider-id: PROVIDER_ID
+{{- if not .kubeletConfiguration }}
+            read-only-port: "0"
+            anonymous-auth: "false"
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 12 }}
+{{- end }}
+{{- end }}
+{{- if .wnNodeLabelArgs }}
+{{ .wnNodeLabelArgs.ToYaml | indent 12 }}
+{{- end }}
+{{- if or (and (ne .format "bottlerocket") (or .proxyConfig .registryMirrorMap)) .kubeletConfiguration }}
+      files:
+{{- end }}
+{{- if .kubeletConfiguration }}
+        - content: |
+{{ .kubeletConfiguration | indent 12 }}
+          owner: root:root
+          permissions: "0644"
+          path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.yaml
+{{- end }}
+{{- if and .proxyConfig (ne .format "bottlerocket") }}
+        - content: |
+            [Service]
+            Environment="HTTP_PROXY={{.httpProxy}}"
+            Environment="HTTPS_PROXY={{.httpsProxy}}"
+            Environment="NO_PROXY={{ stringsJoin .noProxy "," }}"
+          owner: root:root
+          path: /etc/systemd/system/containerd.service.d/http-proxy.conf
+{{- end }}
+{{- if (ne .format "bottlerocket") }}
+{{- if .registryCACert }}
+        - content: |
+{{ .registryCACert | indent 12 }}
+          owner: root:root
+          path: "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+{{- end }}
+{{- if .registryMirrorMap }}
+        - content: |
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+              {{- range $orig, $mirror := .registryMirrorMap }}
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ $orig }}"]
+                endpoint = ["https://{{ $mirror }}"]
+              {{- end }}
+              {{- if or .registryCACert .insecureSkip }}
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".tls]
+              {{- if .registryCACert }}
+                ca_file = "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+              {{- end }}
+              {{- if .insecureSkip }}
+                insecure_skip_verify = {{.insecureSkip}}
+              {{- end }}
+              {{- end }}
+              {{- if .registryAuth }}
+              [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".auth]
+                username = "{{.registryUsername}}"
+                password = "{{.registryPassword}}"
+              {{- end }}
+          owner: root:root
+          path: "/etc/containerd/config_append.toml"
+{{- end }}
+{{- end }}
+{{- if .ntpServers }}
+      ntp:
+        enabled: true
+        servers: {{ range .ntpServers }}
+        - {{ . }}
+        {{- end }}
+{{- end }}
+{{- if and (or .proxyConfig .registryMirrorMap) (ne .format "bottlerocket") }}
+      preKubeadmCommands:
+{{- if .registryMirrorMap }}
+      - cat /etc/containerd/config_append.toml >> /etc/containerd/config.toml
+{{- end }}
+      - sudo systemctl daemon-reload
+      - sudo systemctl restart containerd
+{{- end }}
+      users:
+      - name: {{.workerSshUsername}}
+        sshAuthorizedKeys:
+        - '{{.workerSshAuthorizedKey}}'
+        sudo: ALL=(ALL) NOPASSWD:ALL
+      format: {{.format}}

@@ -4,34 +4,26 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 
 	"github.com/aws/eks-anywhere/pkg/cluster"
-	"github.com/aws/eks-anywhere/pkg/logger"
-	support "github.com/aws/eks-anywhere/pkg/support"
-	"github.com/aws/eks-anywhere/pkg/validations"
+	"github.com/aws/eks-anywhere/pkg/dependencies"
+	"github.com/aws/eks-anywhere/pkg/diagnostics"
+	"github.com/aws/eks-anywhere/pkg/kubeconfig"
 	"github.com/aws/eks-anywhere/pkg/version"
 )
 
 type createSupportBundleOptions struct {
-	fileName     string
-	wConfig      string
-	since        string
-	sinceTime    string
-	bundleConfig string
-}
-
-func (csbo *createSupportBundleOptions) kubeConfig(clusterName string) string {
-	if csbo.wConfig == "" {
-		return filepath.Join(clusterName, fmt.Sprintf(kubeconfigPattern, clusterName))
-	}
-	return csbo.wConfig
+	fileName              string
+	wConfig               string
+	since                 string
+	sinceTime             string
+	bundleConfig          string
+	hardwareFileName      string
+	tinkerbellBootstrapIP string
+	bundlesManifest       string
 }
 
 var csbo = &createSupportBundleOptions{}
@@ -40,13 +32,13 @@ var supportbundleCmd = &cobra.Command{
 	Use:          "support-bundle -f my-cluster.yaml",
 	Short:        "Generate a support bundle",
 	Long:         "This command is used to create a support bundle to troubleshoot a cluster",
-	PreRunE:      preRunSupportBundle,
+	PreRunE:      bindFlagsToViper,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := csbo.validate(cmd.Context()); err != nil {
 			return err
 		}
-		if err := csbo.createBundle(csbo.since, csbo.sinceTime, csbo.bundleConfig); err != nil {
+		if err := csbo.createBundle(cmd.Context(), csbo.since, csbo.sinceTime, csbo.bundleConfig, csbo.bundlesManifest); err != nil {
 			return fmt.Errorf("failed to create support bundle: %v", err)
 		}
 		return nil
@@ -60,6 +52,7 @@ func init() {
 	supportbundleCmd.Flags().StringVarP(&csbo.bundleConfig, "bundle-config", "", "", "Bundle Config file to use when generating support bundle")
 	supportbundleCmd.Flags().StringVarP(&csbo.fileName, "filename", "f", "", "Filename that contains EKS-A cluster configuration")
 	supportbundleCmd.Flags().StringVarP(&csbo.wConfig, "w-config", "w", "", "Kubeconfig file to use when creating support bundle for a workload cluster")
+	supportbundleCmd.Flags().StringVarP(&csbo.bundlesManifest, "bundles-manifest", "", "", "Bundles manifest to use when generating support bundle (required for generating support bundle in airgap environment)")
 	err := supportbundleCmd.MarkFlagRequired("filename")
 	if err != nil {
 		log.Fatalf("Error marking flag as required: %v", err)
@@ -71,50 +64,54 @@ func (csbo *createSupportBundleOptions) validate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !validations.KubeConfigExists(clusterConfig.Name, clusterConfig.Name, csbo.wConfig, kubeconfigPattern) {
-		return fmt.Errorf("KubeConfig doesn't exists for cluster %s", clusterConfig.Name)
+
+	kubeconfigPath := kubeconfig.FromClusterName(clusterConfig.Name)
+	if err := kubeconfig.ValidateFilename(kubeconfigPath); err != nil {
+		return err
 	}
+
 	return nil
 }
 
-func preRunSupportBundle(cmd *cobra.Command, args []string) error {
-	cmd.Flags().VisitAll(func(flag *pflag.Flag) {
-		err := viper.BindPFlag(flag.Name, flag)
-		if err != nil {
-			log.Fatalf("Error initializing flags: %v", err)
-		}
-	})
-	return nil
-}
-
-func (csbo *createSupportBundleOptions) createBundle(since, sinceTime, bundleConfig string) error {
-	clusterSpec, err := cluster.NewSpec(csbo.fileName, version.Get())
+func (csbo *createSupportBundleOptions) createBundle(ctx context.Context, since, sinceTime, bundleConfig string, bundlesManifest string) error {
+	var opts []cluster.FileSpecBuilderOpt
+	if bundlesManifest != "" {
+		opts = append(opts, cluster.WithOverrideBundlesManifest(bundlesManifest))
+	}
+	clusterSpec, err := readAndValidateClusterSpec(csbo.fileName, version.Get(), opts...)
 	if err != nil {
 		return fmt.Errorf("unable to get cluster config from file: %v", err)
 	}
-	os.Setenv("KUBECONFIG", csbo.kubeConfig(clusterSpec.Name))
-	supportBundle, err := support.ParseBundleFromDoc(clusterSpec, bundleConfig)
+
+	deps, err := dependencies.ForSpec(clusterSpec).
+		WithProvider(csbo.fileName, clusterSpec.Cluster, cc.skipIpCheck, csbo.hardwareFileName, false, csbo.tinkerbellBootstrapIP, map[string]bool{}, nil).
+		WithDiagnosticBundleFactory().
+		Build(ctx)
+	if err != nil {
+		return err
+	}
+	defer close(ctx, deps)
+
+	supportBundle, err := deps.DignosticCollectorFactory.DiagnosticBundle(clusterSpec, deps.Provider, getKubeconfigPath(clusterSpec.Cluster.Name, csbo.wConfig), bundleConfig)
 	if err != nil {
 		return fmt.Errorf("failed to parse collector: %v", err)
 	}
 
 	var sinceTimeValue *time.Time
-	sinceTimeValue, err = support.ParseTimeOptions(since, sinceTime)
+	sinceTimeValue, err = diagnostics.ParseTimeOptions(since, sinceTime)
 	if err != nil {
 		return fmt.Errorf("failed parse since time: %v", err)
 	}
 
-	archivePath, err := supportBundle.CollectBundleFromSpec(sinceTimeValue)
+	err = supportBundle.CollectAndAnalyze(ctx, sinceTimeValue)
 	if err != nil {
-		return fmt.Errorf("run collectors: %v", err)
+		return fmt.Errorf("collecting and analyzing bundle: %v", err)
 	}
 
-	logger.Info("\r \033[36mAnalyzing support bundle\033[m")
-	err = supportBundle.AnalyzeBundle(archivePath)
+	err = supportBundle.PrintAnalysis()
 	if err != nil {
-		return fmt.Errorf("there is an error when analyzing: %v", err)
+		return fmt.Errorf("printing analysis")
 	}
 
-	logger.Info("a support bundle has been created in the current directory:", "path", archivePath)
 	return nil
 }

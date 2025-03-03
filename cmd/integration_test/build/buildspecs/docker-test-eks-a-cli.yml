@@ -1,0 +1,74 @@
+version: 0.2
+
+env:
+  variables:
+    INTEGRATION_TEST_MAX_CONCURRENT_TEST_COUNT: 60
+    EKSA_GIT_KNOWN_HOSTS: "/tmp/known_hosts"
+    EKSA_GIT_PRIVATE_KEY: "/tmp/private-key"
+    INTEGRATION_TEST_INFRA_CONFIG: "/tmp/test-infra.yml"
+  secrets-manager:
+    EKSA_AWS_ACCESS_KEY_ID: "packages_ci_beta:aws_access_key_id"
+    EKSA_AWS_SECRET_ACCESS_KEY: "packages_ci_beta:aws_secret_access_key_id"
+    EKSA_AWS_REGION: "packages_ci_beta:aws_region"
+    NON_REGIONAL_EKSA_AWS_ACCESS_KEY_ID: "packages_ci_beta:non_regional_aws_access_key_id"
+    NON_REGIONAL_EKSA_AWS_SECRET_ACCESS_KEY: "packages_ci_beta:non_regional_aws_secret_access_key_id"
+    EKSA_GITHUB_TOKEN: "github-eks-anywhere-flux-bot:github-token"
+    T_GITHUB_USER: "github-eks-anywhere-flux-bot:github-user"
+    T_GIT_REPOSITORY: "github-eks-anywhere-flux-bot:github-repository"
+    T_GIT_SSH_REPO_URL: "github-eks-anywhere-flux-bot:generic-git-repository-url"
+    T_REGISTRY_MIRROR_ENDPOINT: "harbor-registry-data:endpoint"
+    T_REGISTRY_MIRROR_PORT: "harbor-registry-data:port"
+    T_REGISTRY_MIRROR_USERNAME: "harbor-registry-data:username"
+    T_REGISTRY_MIRROR_PASSWORD: "harbor-registry-data:password"
+    T_REGISTRY_MIRROR_CA_CERT: "harbor-registry-data:caCert"
+    T_REGISTRY_MIRROR_DEFAULT_SECURITY_GROUP: "harbor-registry-data:default_sg_id"
+    T_REGISTRY_MIRROR_AIRGAPPED_SECURITY_GROUP: "harbor-registry-data:airgapped_sg_id"
+    T_AWS_IAM_ROLE_ARN: "aws-iam-auth-role:ec2_role_arn"
+    LICENSE_TOKEN: "extended_support:license_token"
+    LICENSE_TOKEN2: "extended_support:license_token2"
+    STAGING_LICENSE_TOKEN: "extended_support:staging_license_token"
+    STAGING_LICENSE_TOKEN2: "extended_support:staging_license_token2"
+phases:
+  pre_build:
+    commands:
+      - source ${CODEBUILD_SRC_DIR}/cmd/integration_test/build/script/setup_profile.sh
+      - source ${CODEBUILD_SRC_DIR}/cmd/integration_test/build/script/create_infra_config.sh
+      - ${CODEBUILD_SRC_DIR}/cmd/integration_test/build/script/start_docker.sh
+      - |
+        if ! [[ ${CODEBUILD_INITIATOR} =~ "codepipeline" ]]; then
+          make build-eks-a-for-e2e build-integration-test-binary e2e-tests-binary E2E_TAGS="e2e docker" E2E_OUTPUT_FILE=bin/docker/e2e.test
+        fi
+  build:
+    commands:
+      - export JOB_ID=$CODEBUILD_BUILD_ID
+      - BUNDLES_OVERRIDE=false
+      - |
+        if [ -f ./bin/local-bundle-release.yaml ]; then
+          BUNDLES_OVERRIDE=true
+        fi
+      - STAGE="dev"
+      - |
+        if [[ "$CODEBUILD_INITIATOR" =~ "aws-staging-eks-a-release" ]]; then
+          STAGE="staging"
+        fi
+      - SKIPPED_TESTS=$(yq e ".skipped_tests | @csv" ${CODEBUILD_SRC_DIR}/test/e2e/SKIPPED_TESTS.yaml)
+      - mv bin/docker/e2e.test bin/e2e.test
+      - >
+        ./bin/test e2e run
+        -c ${INTEGRATION_TEST_INFRA_CONFIG}
+        -s ${INTEGRATION_TEST_STORAGE_BUCKET}
+        -j ${JOB_ID}
+        -i ${INTEGRATION_TEST_INSTANCE_PROFILE}
+        -p ${INTEGRATION_TEST_MAX_CONCURRENT_TEST_COUNT}
+        -r 'Test'
+        -v 4
+        --skip ${SKIPPED_TESTS}
+        --bundles-override=${BUNDLES_OVERRIDE}
+        --test-report-folder=reports
+        --branch-name=${BRANCH_NAME}
+        --stage=${STAGE}
+reports:
+  e2e-reports:
+    files:
+      - reports/junit-testing-*.xml
+    file-format: "JUNITXML"

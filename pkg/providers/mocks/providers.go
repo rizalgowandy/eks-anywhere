@@ -40,60 +40,46 @@ func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 }
 
 // BootstrapClusterOpts mocks base method.
-func (m *MockProvider) BootstrapClusterOpts() ([]bootstrapper.BootstrapClusterOption, error) {
+func (m *MockProvider) BootstrapClusterOpts(arg0 *cluster.Spec) ([]bootstrapper.BootstrapClusterOption, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BootstrapClusterOpts")
+	ret := m.ctrl.Call(m, "BootstrapClusterOpts", arg0)
 	ret0, _ := ret[0].([]bootstrapper.BootstrapClusterOption)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // BootstrapClusterOpts indicates an expected call of BootstrapClusterOpts.
-func (mr *MockProviderMockRecorder) BootstrapClusterOpts() *gomock.Call {
+func (mr *MockProviderMockRecorder) BootstrapClusterOpts(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BootstrapClusterOpts", reflect.TypeOf((*MockProvider)(nil).BootstrapClusterOpts))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BootstrapClusterOpts", reflect.TypeOf((*MockProvider)(nil).BootstrapClusterOpts), arg0)
 }
 
-// BootstrapSetup mocks base method.
-func (m *MockProvider) BootstrapSetup(arg0 context.Context, arg1 *v1alpha1.Cluster, arg2 *types.Cluster) error {
+// ChangeDiff mocks base method.
+func (m *MockProvider) ChangeDiff(arg0, arg1 *cluster.ManagementComponents) *types.ComponentChangeDiff {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BootstrapSetup", arg0, arg1, arg2)
-	ret0, _ := ret[0].(error)
+	ret := m.ctrl.Call(m, "ChangeDiff", arg0, arg1)
+	ret0, _ := ret[0].(*types.ComponentChangeDiff)
 	return ret0
 }
 
-// BootstrapSetup indicates an expected call of BootstrapSetup.
-func (mr *MockProviderMockRecorder) BootstrapSetup(arg0, arg1, arg2 interface{}) *gomock.Call {
+// ChangeDiff indicates an expected call of ChangeDiff.
+func (mr *MockProviderMockRecorder) ChangeDiff(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BootstrapSetup", reflect.TypeOf((*MockProvider)(nil).BootstrapSetup), arg0, arg1, arg2)
-}
-
-// CleanupProviderInfrastructure mocks base method.
-func (m *MockProvider) CleanupProviderInfrastructure(arg0 context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CleanupProviderInfrastructure", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CleanupProviderInfrastructure indicates an expected call of CleanupProviderInfrastructure.
-func (mr *MockProviderMockRecorder) CleanupProviderInfrastructure(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupProviderInfrastructure", reflect.TypeOf((*MockProvider)(nil).CleanupProviderInfrastructure), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeDiff", reflect.TypeOf((*MockProvider)(nil).ChangeDiff), arg0, arg1)
 }
 
 // DatacenterConfig mocks base method.
-func (m *MockProvider) DatacenterConfig() providers.DatacenterConfig {
+func (m *MockProvider) DatacenterConfig(arg0 *cluster.Spec) providers.DatacenterConfig {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DatacenterConfig")
+	ret := m.ctrl.Call(m, "DatacenterConfig", arg0)
 	ret0, _ := ret[0].(providers.DatacenterConfig)
 	return ret0
 }
 
 // DatacenterConfig indicates an expected call of DatacenterConfig.
-func (mr *MockProviderMockRecorder) DatacenterConfig() *gomock.Call {
+func (mr *MockProviderMockRecorder) DatacenterConfig(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DatacenterConfig", reflect.TypeOf((*MockProvider)(nil).DatacenterConfig))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DatacenterConfig", reflect.TypeOf((*MockProvider)(nil).DatacenterConfig), arg0)
 }
 
 // DatacenterResourceType mocks base method.
@@ -110,78 +96,65 @@ func (mr *MockProviderMockRecorder) DatacenterResourceType() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DatacenterResourceType", reflect.TypeOf((*MockProvider)(nil).DatacenterResourceType))
 }
 
-// EnvMap mocks base method.
-func (m *MockProvider) EnvMap() (map[string]string, error) {
+// DeleteResources mocks base method.
+func (m *MockProvider) DeleteResources(arg0 context.Context, arg1 *cluster.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EnvMap")
+	ret := m.ctrl.Call(m, "DeleteResources", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteResources indicates an expected call of DeleteResources.
+func (mr *MockProviderMockRecorder) DeleteResources(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteResources", reflect.TypeOf((*MockProvider)(nil).DeleteResources), arg0, arg1)
+}
+
+// EnvMap mocks base method.
+func (m *MockProvider) EnvMap(arg0 *cluster.ManagementComponents, arg1 *cluster.Spec) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnvMap", arg0, arg1)
 	ret0, _ := ret[0].(map[string]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // EnvMap indicates an expected call of EnvMap.
-func (mr *MockProviderMockRecorder) EnvMap() *gomock.Call {
+func (mr *MockProviderMockRecorder) EnvMap(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnvMap", reflect.TypeOf((*MockProvider)(nil).EnvMap))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnvMap", reflect.TypeOf((*MockProvider)(nil).EnvMap), arg0, arg1)
 }
 
-// GenerateDeploymentFileForCreate mocks base method.
-func (m *MockProvider) GenerateDeploymentFileForCreate(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.Spec, arg3 string) (string, error) {
+// GenerateCAPISpecForCreate mocks base method.
+func (m *MockProvider) GenerateCAPISpecForCreate(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.Spec) ([]byte, []byte, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GenerateDeploymentFileForCreate", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GenerateDeploymentFileForCreate indicates an expected call of GenerateDeploymentFileForCreate.
-func (mr *MockProviderMockRecorder) GenerateDeploymentFileForCreate(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateDeploymentFileForCreate", reflect.TypeOf((*MockProvider)(nil).GenerateDeploymentFileForCreate), arg0, arg1, arg2, arg3)
-}
-
-// GenerateDeploymentFileForUpgrade mocks base method.
-func (m *MockProvider) GenerateDeploymentFileForUpgrade(arg0 context.Context, arg1, arg2 *types.Cluster, arg3 *cluster.Spec, arg4 string) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GenerateDeploymentFileForUpgrade", arg0, arg1, arg2, arg3, arg4)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GenerateDeploymentFileForUpgrade indicates an expected call of GenerateDeploymentFileForUpgrade.
-func (mr *MockProviderMockRecorder) GenerateDeploymentFileForUpgrade(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateDeploymentFileForUpgrade", reflect.TypeOf((*MockProvider)(nil).GenerateDeploymentFileForUpgrade), arg0, arg1, arg2, arg3, arg4)
-}
-
-// GenerateMHC mocks base method.
-func (m *MockProvider) GenerateMHC() ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GenerateMHC")
+	ret := m.ctrl.Call(m, "GenerateCAPISpecForCreate", arg0, arg1, arg2)
 	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].([]byte)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
-// GenerateMHC indicates an expected call of GenerateMHC.
-func (mr *MockProviderMockRecorder) GenerateMHC() *gomock.Call {
+// GenerateCAPISpecForCreate indicates an expected call of GenerateCAPISpecForCreate.
+func (mr *MockProviderMockRecorder) GenerateCAPISpecForCreate(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateMHC", reflect.TypeOf((*MockProvider)(nil).GenerateMHC))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateCAPISpecForCreate", reflect.TypeOf((*MockProvider)(nil).GenerateCAPISpecForCreate), arg0, arg1, arg2)
 }
 
-// GenerateStorageClass mocks base method.
-func (m *MockProvider) GenerateStorageClass() []byte {
+// GenerateCAPISpecForUpgrade mocks base method.
+func (m *MockProvider) GenerateCAPISpecForUpgrade(arg0 context.Context, arg1, arg2 *types.Cluster, arg3, arg4 *cluster.Spec) ([]byte, []byte, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GenerateStorageClass")
+	ret := m.ctrl.Call(m, "GenerateCAPISpecForUpgrade", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].([]byte)
-	return ret0
+	ret1, _ := ret[1].([]byte)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
-// GenerateStorageClass indicates an expected call of GenerateStorageClass.
-func (mr *MockProviderMockRecorder) GenerateStorageClass() *gomock.Call {
+// GenerateCAPISpecForUpgrade indicates an expected call of GenerateCAPISpecForUpgrade.
+func (mr *MockProviderMockRecorder) GenerateCAPISpecForUpgrade(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateStorageClass", reflect.TypeOf((*MockProvider)(nil).GenerateStorageClass))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateCAPISpecForUpgrade", reflect.TypeOf((*MockProvider)(nil).GenerateCAPISpecForUpgrade), arg0, arg1, arg2, arg3, arg4)
 }
 
 // GetDeployments mocks base method.
@@ -199,7 +172,7 @@ func (mr *MockProviderMockRecorder) GetDeployments() *gomock.Call {
 }
 
 // GetInfrastructureBundle mocks base method.
-func (m *MockProvider) GetInfrastructureBundle(arg0 *cluster.Spec) *types.InfrastructureBundle {
+func (m *MockProvider) GetInfrastructureBundle(arg0 *cluster.ManagementComponents) *types.InfrastructureBundle {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetInfrastructureBundle", arg0)
 	ret0, _ := ret[0].(*types.InfrastructureBundle)
@@ -212,18 +185,32 @@ func (mr *MockProviderMockRecorder) GetInfrastructureBundle(arg0 interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInfrastructureBundle", reflect.TypeOf((*MockProvider)(nil).GetInfrastructureBundle), arg0)
 }
 
-// MachineConfigs mocks base method.
-func (m *MockProvider) MachineConfigs() []providers.MachineConfig {
+// InstallCustomProviderComponents mocks base method.
+func (m *MockProvider) InstallCustomProviderComponents(arg0 context.Context, arg1 string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MachineConfigs")
+	ret := m.ctrl.Call(m, "InstallCustomProviderComponents", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InstallCustomProviderComponents indicates an expected call of InstallCustomProviderComponents.
+func (mr *MockProviderMockRecorder) InstallCustomProviderComponents(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InstallCustomProviderComponents", reflect.TypeOf((*MockProvider)(nil).InstallCustomProviderComponents), arg0, arg1)
+}
+
+// MachineConfigs mocks base method.
+func (m *MockProvider) MachineConfigs(arg0 *cluster.Spec) []providers.MachineConfig {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MachineConfigs", arg0)
 	ret0, _ := ret[0].([]providers.MachineConfig)
 	return ret0
 }
 
 // MachineConfigs indicates an expected call of MachineConfigs.
-func (mr *MockProviderMockRecorder) MachineConfigs() *gomock.Call {
+func (mr *MockProviderMockRecorder) MachineConfigs(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MachineConfigs", reflect.TypeOf((*MockProvider)(nil).MachineConfigs))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MachineConfigs", reflect.TypeOf((*MockProvider)(nil).MachineConfigs), arg0)
 }
 
 // MachineResourceType mocks base method.
@@ -254,6 +241,132 @@ func (mr *MockProviderMockRecorder) Name() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockProvider)(nil).Name))
 }
 
+// PostBootstrapDeleteForUpgrade mocks base method.
+func (m *MockProvider) PostBootstrapDeleteForUpgrade(arg0 context.Context, arg1 *types.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostBootstrapDeleteForUpgrade", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostBootstrapDeleteForUpgrade indicates an expected call of PostBootstrapDeleteForUpgrade.
+func (mr *MockProviderMockRecorder) PostBootstrapDeleteForUpgrade(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostBootstrapDeleteForUpgrade", reflect.TypeOf((*MockProvider)(nil).PostBootstrapDeleteForUpgrade), arg0, arg1)
+}
+
+// PostBootstrapSetup mocks base method.
+func (m *MockProvider) PostBootstrapSetup(arg0 context.Context, arg1 *v1alpha1.Cluster, arg2 *types.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostBootstrapSetup", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostBootstrapSetup indicates an expected call of PostBootstrapSetup.
+func (mr *MockProviderMockRecorder) PostBootstrapSetup(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostBootstrapSetup", reflect.TypeOf((*MockProvider)(nil).PostBootstrapSetup), arg0, arg1, arg2)
+}
+
+// PostBootstrapSetupUpgrade mocks base method.
+func (m *MockProvider) PostBootstrapSetupUpgrade(arg0 context.Context, arg1 *v1alpha1.Cluster, arg2 *types.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostBootstrapSetupUpgrade", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostBootstrapSetupUpgrade indicates an expected call of PostBootstrapSetupUpgrade.
+func (mr *MockProviderMockRecorder) PostBootstrapSetupUpgrade(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostBootstrapSetupUpgrade", reflect.TypeOf((*MockProvider)(nil).PostBootstrapSetupUpgrade), arg0, arg1, arg2)
+}
+
+// PostClusterDeleteValidate mocks base method.
+func (m *MockProvider) PostClusterDeleteValidate(arg0 context.Context, arg1 *types.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostClusterDeleteValidate", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostClusterDeleteValidate indicates an expected call of PostClusterDeleteValidate.
+func (mr *MockProviderMockRecorder) PostClusterDeleteValidate(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostClusterDeleteValidate", reflect.TypeOf((*MockProvider)(nil).PostClusterDeleteValidate), arg0, arg1)
+}
+
+// PostMoveManagementToBootstrap mocks base method.
+func (m *MockProvider) PostMoveManagementToBootstrap(arg0 context.Context, arg1 *types.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostMoveManagementToBootstrap", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostMoveManagementToBootstrap indicates an expected call of PostMoveManagementToBootstrap.
+func (mr *MockProviderMockRecorder) PostMoveManagementToBootstrap(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostMoveManagementToBootstrap", reflect.TypeOf((*MockProvider)(nil).PostMoveManagementToBootstrap), arg0, arg1)
+}
+
+// PostWorkloadInit mocks base method.
+func (m *MockProvider) PostWorkloadInit(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.Spec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostWorkloadInit", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostWorkloadInit indicates an expected call of PostWorkloadInit.
+func (mr *MockProviderMockRecorder) PostWorkloadInit(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostWorkloadInit", reflect.TypeOf((*MockProvider)(nil).PostWorkloadInit), arg0, arg1, arg2)
+}
+
+// PreCAPIInstallOnBootstrap mocks base method.
+func (m *MockProvider) PreCAPIInstallOnBootstrap(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.Spec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PreCAPIInstallOnBootstrap", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PreCAPIInstallOnBootstrap indicates an expected call of PreCAPIInstallOnBootstrap.
+func (mr *MockProviderMockRecorder) PreCAPIInstallOnBootstrap(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCAPIInstallOnBootstrap", reflect.TypeOf((*MockProvider)(nil).PreCAPIInstallOnBootstrap), arg0, arg1, arg2)
+}
+
+// PreCoreComponentsUpgrade mocks base method.
+func (m *MockProvider) PreCoreComponentsUpgrade(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.ManagementComponents, arg3 *cluster.Spec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PreCoreComponentsUpgrade", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PreCoreComponentsUpgrade indicates an expected call of PreCoreComponentsUpgrade.
+func (mr *MockProviderMockRecorder) PreCoreComponentsUpgrade(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCoreComponentsUpgrade", reflect.TypeOf((*MockProvider)(nil).PreCoreComponentsUpgrade), arg0, arg1, arg2, arg3)
+}
+
+// RunPostControlPlaneUpgrade mocks base method.
+func (m *MockProvider) RunPostControlPlaneUpgrade(arg0 context.Context, arg1, arg2 *cluster.Spec, arg3, arg4 *types.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RunPostControlPlaneUpgrade", arg0, arg1, arg2, arg3, arg4)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RunPostControlPlaneUpgrade indicates an expected call of RunPostControlPlaneUpgrade.
+func (mr *MockProviderMockRecorder) RunPostControlPlaneUpgrade(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunPostControlPlaneUpgrade", reflect.TypeOf((*MockProvider)(nil).RunPostControlPlaneUpgrade), arg0, arg1, arg2, arg3, arg4)
+}
+
 // SetupAndValidateCreateCluster mocks base method.
 func (m *MockProvider) SetupAndValidateCreateCluster(arg0 context.Context, arg1 *cluster.Spec) error {
 	m.ctrl.T.Helper()
@@ -269,31 +382,45 @@ func (mr *MockProviderMockRecorder) SetupAndValidateCreateCluster(arg0, arg1 int
 }
 
 // SetupAndValidateDeleteCluster mocks base method.
-func (m *MockProvider) SetupAndValidateDeleteCluster(arg0 context.Context) error {
+func (m *MockProvider) SetupAndValidateDeleteCluster(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetupAndValidateDeleteCluster", arg0)
+	ret := m.ctrl.Call(m, "SetupAndValidateDeleteCluster", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetupAndValidateDeleteCluster indicates an expected call of SetupAndValidateDeleteCluster.
-func (mr *MockProviderMockRecorder) SetupAndValidateDeleteCluster(arg0 interface{}) *gomock.Call {
+func (mr *MockProviderMockRecorder) SetupAndValidateDeleteCluster(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupAndValidateDeleteCluster", reflect.TypeOf((*MockProvider)(nil).SetupAndValidateDeleteCluster), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupAndValidateDeleteCluster", reflect.TypeOf((*MockProvider)(nil).SetupAndValidateDeleteCluster), arg0, arg1, arg2)
 }
 
 // SetupAndValidateUpgradeCluster mocks base method.
-func (m *MockProvider) SetupAndValidateUpgradeCluster(arg0 context.Context, arg1 *cluster.Spec) error {
+func (m *MockProvider) SetupAndValidateUpgradeCluster(arg0 context.Context, arg1 *types.Cluster, arg2, arg3 *cluster.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetupAndValidateUpgradeCluster", arg0, arg1)
+	ret := m.ctrl.Call(m, "SetupAndValidateUpgradeCluster", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetupAndValidateUpgradeCluster indicates an expected call of SetupAndValidateUpgradeCluster.
-func (mr *MockProviderMockRecorder) SetupAndValidateUpgradeCluster(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockProviderMockRecorder) SetupAndValidateUpgradeCluster(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupAndValidateUpgradeCluster", reflect.TypeOf((*MockProvider)(nil).SetupAndValidateUpgradeCluster), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupAndValidateUpgradeCluster", reflect.TypeOf((*MockProvider)(nil).SetupAndValidateUpgradeCluster), arg0, arg1, arg2, arg3)
+}
+
+// SetupAndValidateUpgradeManagementComponents mocks base method.
+func (m *MockProvider) SetupAndValidateUpgradeManagementComponents(arg0 context.Context, arg1 *cluster.Spec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetupAndValidateUpgradeManagementComponents", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetupAndValidateUpgradeManagementComponents indicates an expected call of SetupAndValidateUpgradeManagementComponents.
+func (mr *MockProviderMockRecorder) SetupAndValidateUpgradeManagementComponents(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupAndValidateUpgradeManagementComponents", reflect.TypeOf((*MockProvider)(nil).SetupAndValidateUpgradeManagementComponents), arg0, arg1)
 }
 
 // UpdateKubeConfig mocks base method.
@@ -311,35 +438,50 @@ func (mr *MockProviderMockRecorder) UpdateKubeConfig(arg0, arg1 interface{}) *go
 }
 
 // UpdateSecrets mocks base method.
-func (m *MockProvider) UpdateSecrets(arg0 context.Context, arg1 *types.Cluster) error {
+func (m *MockProvider) UpdateSecrets(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateSecrets", arg0, arg1)
+	ret := m.ctrl.Call(m, "UpdateSecrets", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateSecrets indicates an expected call of UpdateSecrets.
-func (mr *MockProviderMockRecorder) UpdateSecrets(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockProviderMockRecorder) UpdateSecrets(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSecrets", reflect.TypeOf((*MockProvider)(nil).UpdateSecrets), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSecrets", reflect.TypeOf((*MockProvider)(nil).UpdateSecrets), arg0, arg1, arg2)
+}
+
+// UpgradeNeeded mocks base method.
+func (m *MockProvider) UpgradeNeeded(arg0 context.Context, arg1, arg2 *cluster.Spec, arg3 *types.Cluster) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpgradeNeeded", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpgradeNeeded indicates an expected call of UpgradeNeeded.
+func (mr *MockProviderMockRecorder) UpgradeNeeded(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpgradeNeeded", reflect.TypeOf((*MockProvider)(nil).UpgradeNeeded), arg0, arg1, arg2, arg3)
 }
 
 // ValidateNewSpec mocks base method.
-func (m *MockProvider) ValidateNewSpec(arg0 context.Context, arg1 *types.Cluster) error {
+func (m *MockProvider) ValidateNewSpec(arg0 context.Context, arg1 *types.Cluster, arg2 *cluster.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateNewSpec", arg0, arg1)
+	ret := m.ctrl.Call(m, "ValidateNewSpec", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ValidateNewSpec indicates an expected call of ValidateNewSpec.
-func (mr *MockProviderMockRecorder) ValidateNewSpec(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockProviderMockRecorder) ValidateNewSpec(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateNewSpec", reflect.TypeOf((*MockProvider)(nil).ValidateNewSpec), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateNewSpec", reflect.TypeOf((*MockProvider)(nil).ValidateNewSpec), arg0, arg1, arg2)
 }
 
 // Version mocks base method.
-func (m *MockProvider) Version(arg0 *cluster.Spec) string {
+func (m *MockProvider) Version(arg0 *cluster.ManagementComponents) string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Version", arg0)
 	ret0, _ := ret[0].(string)
@@ -401,6 +543,20 @@ func (mr *MockDatacenterConfigMockRecorder) Kind() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Kind", reflect.TypeOf((*MockDatacenterConfig)(nil).Kind))
 }
 
+// Marshallable mocks base method.
+func (m *MockDatacenterConfig) Marshallable() v1alpha1.Marshallable {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Marshallable")
+	ret0, _ := ret[0].(v1alpha1.Marshallable)
+	return ret0
+}
+
+// Marshallable indicates an expected call of Marshallable.
+func (mr *MockDatacenterConfigMockRecorder) Marshallable() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Marshallable", reflect.TypeOf((*MockDatacenterConfig)(nil).Marshallable))
+}
+
 // PauseReconcile mocks base method.
 func (m *MockDatacenterConfig) PauseReconcile() {
 	m.ctrl.T.Helper()
@@ -434,4 +590,60 @@ func NewMockMachineConfig(ctrl *gomock.Controller) *MockMachineConfig {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockMachineConfig) EXPECT() *MockMachineConfigMockRecorder {
 	return m.recorder
+}
+
+// GetName mocks base method.
+func (m *MockMachineConfig) GetName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetName indicates an expected call of GetName.
+func (mr *MockMachineConfigMockRecorder) GetName() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetName", reflect.TypeOf((*MockMachineConfig)(nil).GetName))
+}
+
+// GetNamespace mocks base method.
+func (m *MockMachineConfig) GetNamespace() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNamespace")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetNamespace indicates an expected call of GetNamespace.
+func (mr *MockMachineConfigMockRecorder) GetNamespace() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNamespace", reflect.TypeOf((*MockMachineConfig)(nil).GetNamespace))
+}
+
+// Marshallable mocks base method.
+func (m *MockMachineConfig) Marshallable() v1alpha1.Marshallable {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Marshallable")
+	ret0, _ := ret[0].(v1alpha1.Marshallable)
+	return ret0
+}
+
+// Marshallable indicates an expected call of Marshallable.
+func (mr *MockMachineConfigMockRecorder) Marshallable() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Marshallable", reflect.TypeOf((*MockMachineConfig)(nil).Marshallable))
+}
+
+// OSFamily mocks base method.
+func (m *MockMachineConfig) OSFamily() v1alpha1.OSFamily {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OSFamily")
+	ret0, _ := ret[0].(v1alpha1.OSFamily)
+	return ret0
+}
+
+// OSFamily indicates an expected call of OSFamily.
+func (mr *MockMachineConfigMockRecorder) OSFamily() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OSFamily", reflect.TypeOf((*MockMachineConfig)(nil).OSFamily))
 }

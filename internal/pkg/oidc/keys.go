@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	jose "gopkg.in/square/go-jose.v2"
+	jose "github.com/go-jose/go-jose/v3"
 )
 
 type keyResponse struct {
@@ -28,7 +28,7 @@ func parseKeys(bytes []byte) (*keyResponse, error) {
 	keys := &keyResponse{}
 	err := json.Unmarshal(bytes, keys)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing keys.json to get kid: %v", err)
+		return nil, fmt.Errorf("parsing keys.json to get kid: %v", err)
 	}
 
 	return keys, nil

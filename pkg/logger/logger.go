@@ -7,37 +7,43 @@ import (
 	"github.com/go-logr/logr"
 )
 
+// MaxLogLevel denotes the maximum log level supported by the logger package.
+const MaxLogLevel = 9
+
 const (
-	maxLogging  = 9
 	markPass    = "✅ "
 	markSuccess = "🎉 "
 	markFailed  = "❌ "
+	markWarning = "⚠️"
 )
 
 var (
-	l    logr.Logger = logr.Discard()
-	once sync.Once
+	pkgLogger    logr.Logger = logr.Discard()
+	pkgLoggerMtx sync.RWMutex
 )
 
-func set(logger logr.Logger) {
-	once.Do(func() {
-		l = logger
-	})
+func setLogger(l logr.Logger) {
+	pkgLoggerMtx.Lock()
+	defer pkgLoggerMtx.Unlock()
+	pkgLogger = l
 }
 
 // Get returns the logger instance that has been previously set.
 // If no logger has been set, it returns a null logger.
 func Get() logr.Logger {
-	return l
+	pkgLoggerMtx.RLock()
+	defer pkgLoggerMtx.RUnlock()
+	return pkgLogger
 }
 
+// MaxLogging determines if the package logger is configured to log at MaxLogLevel.
 func MaxLogging() bool {
-	return l.V(maxLogging).Enabled()
+	return Get().V(MaxLogLevel).Enabled()
 }
 
 // Fatal is equivalent to Get().Error() followed by a call to os.Exit(1).
 func Fatal(err error, msg string) {
-	l.Error(err, msg)
+	Get().Error(err, msg)
 	os.Exit(1)
 }
 
@@ -48,7 +54,7 @@ func Fatal(err error, msg string) {
 // variable information. The key/value pairs should alternate string
 // keys and arbitrary values.
 func Info(msg string, keysAndValues ...interface{}) {
-	l.Info(msg, keysAndValues...)
+	Get().Info(msg, keysAndValues...)
 }
 
 // V returns an Logger value for a specific verbosity level, relative to
@@ -56,29 +62,30 @@ func Info(msg string, keysAndValues ...interface{}) {
 // level means a log message is less important.  It's illegal to pass a log
 // level less than zero.
 func V(level int) logr.Logger {
-	return l.V(level)
+	return Get().V(level)
 }
 
+// Error logs an error message using the package logger.
 func Error(err error, msg string, keysAndValues ...interface{}) {
-	l.Error(err, msg, keysAndValues...)
+	Get().Error(err, msg, keysAndValues...)
 }
 
+// MarkPass logs a message prefixed with a green check emoji.
 func MarkPass(msg string, keysAndValues ...interface{}) {
-	l.V(0).Info(markPass+msg, keysAndValues...)
+	Get().V(0).Info(markPass+msg, keysAndValues...)
 }
 
+// MarkSuccess logs a message prefixed with a popper emoji.
 func MarkSuccess(msg string, keysAndValues ...interface{}) {
-	l.V(0).Info(markSuccess+msg, keysAndValues...)
+	Get().V(0).Info(markSuccess+msg, keysAndValues...)
 }
 
+// MarkFail logs a message prefixed with a cross emoji.
 func MarkFail(msg string, keysAndValues ...interface{}) {
-	l.V(0).Info(markFailed+msg, keysAndValues...)
+	Get().V(0).Info(markFailed+msg, keysAndValues...)
 }
 
-type LoggerOpt func(logr *logr.Logger)
-
-func WithName(name string) LoggerOpt {
-	return func(logr *logr.Logger) {
-		*logr = (*logr).WithName(name)
-	}
+// MarkWarning logs a message prefixed with a warning mark.
+func MarkWarning(msg string, keysAndValues ...interface{}) {
+	Get().V(0).Info(markWarning+msg, keysAndValues...)
 }
