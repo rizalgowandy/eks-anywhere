@@ -12,12 +12,12 @@ import (
 const sonobuoyPath = "./sonobuoy"
 
 type Sonobuoy struct {
-	executable Executable
+	Executable
 }
 
 func NewSonobuoy(executable Executable) *Sonobuoy {
 	return &Sonobuoy{
-		executable: executable,
+		Executable: executable,
 	}
 }
 
@@ -27,25 +27,28 @@ func (k *Sonobuoy) Run(ctx context.Context, contextName string, args ...string) 
 		"--context",
 		contextName,
 		"run",
-		"--mode=certified-conformance",
 		"--wait",
 	}
 	executionArgs = append(executionArgs, args...)
-	_, err := k.executable.Execute(ctx, executionArgs...)
+	output, err := k.Execute(ctx, executionArgs...)
+	command := strings.Join(executionArgs, " ") + "\n"
 	if err != nil {
-		return "", fmt.Errorf("error executing sonobuoy: %v", err)
+		return command, fmt.Errorf("executing sonobuoy: %v", err)
 	}
+	return command + output.String(), err
+}
 
-	executionArgs = []string{
+func (k *Sonobuoy) GetResults(ctx context.Context, contextName string, args ...string) (string, error) {
+	executionArgs := []string{
 		"--context",
 		contextName,
 		"retrieve",
 		"./results",
 	}
 	var output bytes.Buffer
-	output, err = k.executable.Execute(ctx, executionArgs...)
+	output, err := k.Execute(ctx, executionArgs...)
 	if err != nil {
-		return "", fmt.Errorf("error executing sonobuoy retrieve: %v", err)
+		return "", fmt.Errorf("executing sonobuoy retrieve: %v", err)
 	}
 	outputFile := strings.TrimSpace(output.String())
 	logger.Info("Sonobuoy results file: " + outputFile)
@@ -54,9 +57,10 @@ func (k *Sonobuoy) Run(ctx context.Context, contextName string, args ...string) 
 		"results",
 		outputFile,
 	}
-	output, err = k.executable.Execute(ctx, executionArgs...)
+	output, err = k.Execute(ctx, executionArgs...)
+	command := strings.Join(executionArgs, " ") + "\n"
 	if err != nil {
-		return "", fmt.Errorf("error executing sonobuoy results command: %v", err)
+		return command, fmt.Errorf("executing sonobuoy results command: %v", err)
 	}
-	return output.String(), err
+	return command + output.String(), err
 }

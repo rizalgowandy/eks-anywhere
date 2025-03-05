@@ -2,176 +2,242 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
-	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 
-	"github.com/aws/eks-anywhere/pkg/addonmanager/addonclients"
+	"github.com/aws/eks-anywhere/cmd/eksctl-anywhere/cmd/aflag"
 	"github.com/aws/eks-anywhere/pkg/api/v1alpha1"
-	"github.com/aws/eks-anywhere/pkg/bootstrapper"
-	fluxclient "github.com/aws/eks-anywhere/pkg/clients/flux"
-	"github.com/aws/eks-anywhere/pkg/cluster"
-	"github.com/aws/eks-anywhere/pkg/clustermanager"
-	"github.com/aws/eks-anywhere/pkg/executables"
-	"github.com/aws/eks-anywhere/pkg/filewriter"
+	"github.com/aws/eks-anywhere/pkg/dependencies"
+	"github.com/aws/eks-anywhere/pkg/kubeconfig"
 	"github.com/aws/eks-anywhere/pkg/logger"
-	"github.com/aws/eks-anywhere/pkg/networking"
-	"github.com/aws/eks-anywhere/pkg/providers/factory"
+	"github.com/aws/eks-anywhere/pkg/providers/tinkerbell/hardware"
 	"github.com/aws/eks-anywhere/pkg/types"
 	"github.com/aws/eks-anywhere/pkg/validations"
 	"github.com/aws/eks-anywhere/pkg/validations/upgradevalidations"
-	"github.com/aws/eks-anywhere/pkg/version"
-	"github.com/aws/eks-anywhere/pkg/workflows"
+	"github.com/aws/eks-anywhere/pkg/workflows/management"
+	"github.com/aws/eks-anywhere/pkg/workflows/workload"
 )
 
 type upgradeClusterOptions struct {
-	fileName   string
-	wConfig    string
-	forceClean bool
+	clusterOptions
+	timeoutOptions
+	wConfig               string
+	forceClean            bool
+	hardwareCSVPath       string
+	tinkerbellBootstrapIP string
+	skipValidations       []string
+	providerOptions       *dependencies.ProviderOptions
 }
 
-func (uc *upgradeClusterOptions) kubeConfig(clusterName string) string {
-	if uc.wConfig == "" {
-		return filepath.Join(clusterName, fmt.Sprintf(kubeconfigPattern, clusterName))
-	}
-	return uc.wConfig
+var uc = &upgradeClusterOptions{
+	providerOptions: &dependencies.ProviderOptions{
+		Tinkerbell: &dependencies.TinkerbellOptions{
+			BMCOptions: &hardware.BMCOptions{
+				RPC: &hardware.RPCOpts{},
+			},
+		},
+	},
 }
-
-var uc = &upgradeClusterOptions{}
 
 var upgradeClusterCmd = &cobra.Command{
 	Use:          "cluster",
 	Short:        "Upgrade workload cluster",
 	Long:         "This command is used to upgrade workload clusters",
-	PreRunE:      preRunUpgradeCluster,
+	PreRunE:      bindFlagsToViper,
 	SilenceUsage: true,
+	Args:         cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := uc.upgradeCluster(cmd.Context()); err != nil {
+		if uc.forceClean {
+			logger.MarkFail(forceCleanupDeprecationMessageForUpgrade)
+			return errors.New("please remove the --force-cleanup flag")
+		}
+
+		if err := uc.upgradeCluster(cmd, args); err != nil {
 			return fmt.Errorf("failed to upgrade cluster: %v", err)
 		}
 		return nil
 	},
 }
 
-func preRunUpgradeCluster(cmd *cobra.Command, args []string) error {
-	cmd.Flags().VisitAll(func(flag *pflag.Flag) {
-		err := viper.BindPFlag(flag.Name, flag)
-		if err != nil {
-			log.Fatalf("Error initializing flags: %v", err)
-		}
-	})
-	return nil
-}
-
 func init() {
 	upgradeCmd.AddCommand(upgradeClusterCmd)
-	upgradeClusterCmd.Flags().StringVarP(&uc.fileName, "filename", "f", "", "Filename that contains EKS-A cluster configuration")
+	applyClusterOptionFlags(upgradeClusterCmd.Flags(), &uc.clusterOptions)
+	applyTimeoutFlags(upgradeClusterCmd.Flags(), &uc.timeoutOptions)
+	applyTinkerbellHardwareFlag(upgradeClusterCmd.Flags(), &uc.hardwareCSVPath)
 	upgradeClusterCmd.Flags().StringVarP(&uc.wConfig, "w-config", "w", "", "Kubeconfig file to use when upgrading a workload cluster")
 	upgradeClusterCmd.Flags().BoolVar(&uc.forceClean, "force-cleanup", false, "Force deletion of previously created bootstrap cluster")
-	err := upgradeClusterCmd.MarkFlagRequired("filename")
-	if err != nil {
-		log.Fatalf("Error marking flag as required: %v", err)
-	}
+	hideForceCleanup(upgradeClusterCmd.Flags())
+	upgradeClusterCmd.Flags().StringArrayVar(&uc.skipValidations, "skip-validations", []string{}, fmt.Sprintf("Bypass upgrade validations by name. Valid arguments you can pass are --skip-validations=%s", strings.Join(upgradevalidations.SkippableValidations[:], ",")))
+	aflag.MarkRequired(createClusterCmd.Flags(), aflag.ClusterConfig.Name)
+	tinkerbellFlags(upgradeClusterCmd.Flags(), uc.providerOptions.Tinkerbell.BMCOptions.RPC)
 }
 
-func (uc *upgradeClusterOptions) upgradeCluster(ctx context.Context) error {
+// nolint:gocyclo
+func (uc *upgradeClusterOptions) upgradeCluster(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
+	clusterConfigFileExist := validations.FileExists(uc.fileName)
+	if !clusterConfigFileExist {
+		return fmt.Errorf("the cluster config file %s does not exist", uc.fileName)
+	}
+
+	clusterConfig, err := v1alpha1.GetAndValidateClusterConfig(uc.fileName)
+	if err != nil {
+		return fmt.Errorf("the cluster config file provided is invalid: %v", err)
+	}
+
+	if clusterConfig.Spec.DatacenterRef.Kind == v1alpha1.TinkerbellDatacenterKind {
+		if err := checkTinkerbellFlags(cmd.Flags(), uc.hardwareCSVPath, Upgrade); err != nil {
+			return err
+		}
+	}
+
+	if clusterConfig.Spec.EtcdEncryption != nil &&
+		clusterConfig.Spec.DatacenterRef.Kind != v1alpha1.CloudStackDatacenterKind &&
+		clusterConfig.Spec.DatacenterRef.Kind != v1alpha1.VSphereDatacenterKind &&
+		clusterConfig.Spec.DatacenterRef.Kind != v1alpha1.NutanixDatacenterKind {
+		return fmt.Errorf("etcdEncryption is currently not supported for the current provider: %s", clusterConfig.Spec.DatacenterRef.Kind)
+	}
+
+	if err := v1alpha1.ValidateEtcdEncryptionConfig(clusterConfig.Spec.EtcdEncryption); err != nil {
+		return err
+	}
+
 	if _, err := uc.commonValidations(ctx); err != nil {
 		return fmt.Errorf("common validations failed due to: %v", err)
 	}
-	clusterSpec, err := cluster.NewSpec(uc.fileName, version.Get())
-	if err != nil {
-		return fmt.Errorf("unable to get cluster config from file: %v", err)
-	}
-	if clusterSpec.HasOverrideClusterSpecFile() {
-		logger.Info("Warning: Override Cluster Spec file is configured. All other values in EKS-A spec will be ignored.")
-	}
 
-	writer, err := filewriter.NewWriter(clusterSpec.Name)
-	if err != nil {
-		return fmt.Errorf("unable to write: %v", err)
+	if err := validations.ValidateClusterNameFromCommandAndConfig(args, clusterConfig.Name); err != nil {
+		return err
 	}
-
-	eksaToolsImage := clusterSpec.VersionsBundle.Eksa.CliTools
-	image := eksaToolsImage.VersionedImage()
-	executableBuilder, err := executables.NewExecutableBuilder(ctx, image)
-	if err != nil {
-		return fmt.Errorf("unable to initialize executables: %v", err)
-	}
-
-	clusterawsadm := executableBuilder.BuildClusterAwsAdmExecutable()
-	kind := executableBuilder.BuildKindExecutable(writer)
-	clusterctl := executableBuilder.BuildClusterCtlExecutable(writer)
-	kubectl := executableBuilder.BuildKubectlExecutable()
-	govc := executableBuilder.BuildGovcExecutable(writer)
-	docker := executables.BuildDockerExecutable()
-	flux := executableBuilder.BuildFluxExecutable()
-
-	providerFactory := &factory.ProviderFactory{
-		AwsClient:            clusterawsadm,
-		DockerClient:         docker,
-		DockerKubectlClient:  kubectl,
-		VSphereGovcClient:    govc,
-		VSphereKubectlClient: kubectl,
-		Writer:               writer,
-	}
-	provider, err := providerFactory.BuildProvider(uc.fileName, clusterSpec.Cluster)
+	clusterSpec, err := newClusterSpec(uc.clusterOptions)
 	if err != nil {
 		return err
 	}
 
-	bootstrapper := bootstrapper.New(&bootstrapperClient{kind, kubectl})
-
-	clusterManager := clustermanager.New(
-		&clusterManagerClient{
-			clusterctl,
-			kubectl,
-		},
-		networking.NewCilium(),
-		writer,
-	)
-
-	gitOpts, err := addonclients.NewGitOptions(ctx, clusterSpec.Cluster, clusterSpec.GitOpsConfig, writer)
-	if err != nil {
-		return fmt.Errorf("failed to set up git options: %v", err)
+	if err := validations.ValidateAuthenticationForRegistryMirror(clusterSpec); err != nil {
+		return err
 	}
 
-	addonClient := addonclients.NewFluxAddonClient(
-		&fluxclient.FluxKubectl{
-			Flux:    flux,
-			Kubectl: kubectl,
-		},
-		gitOpts,
-	)
+	cliConfig := buildCliConfig(clusterSpec)
+	dirs, err := uc.directoriesToMount(clusterSpec, cliConfig)
+	if err != nil {
+		return err
+	}
 
-	upgradeCluster := workflows.NewUpgrade(
-		bootstrapper,
-		provider,
-		clusterManager,
-		addonClient,
-		writer,
-	)
+	upgradeCLIConfig, err := buildUpgradeCliConfig(uc)
+	if err != nil {
+		return err
+	}
+
+	clusterManagerTimeoutOpts, err := buildClusterManagerOpts(uc.timeoutOptions, clusterSpec.Cluster.Spec.DatacenterRef.Kind)
+	if err != nil {
+		return fmt.Errorf("failed to build cluster manager opts: %v", err)
+	}
+
+	var skippedValidations map[string]bool
+	if len(uc.skipValidations) != 0 {
+		skippedValidations, err = validations.ValidateSkippableValidation(uc.skipValidations, upgradevalidations.SkippableValidations)
+		if err != nil {
+			return err
+		}
+	}
+
+	factory := dependencies.ForSpec(clusterSpec).WithExecutableMountDirs(dirs...).
+		WithBootstrapper().
+		WithCliConfig(cliConfig).
+		WithClusterManager(clusterSpec.Cluster, clusterManagerTimeoutOpts).
+		WithClusterApplier().
+		WithProvider(uc.fileName, clusterSpec.Cluster, cc.skipIpCheck, uc.hardwareCSVPath, uc.forceClean, uc.tinkerbellBootstrapIP, skippedValidations, uc.providerOptions).
+		WithGitOpsFlux(clusterSpec.Cluster, clusterSpec.FluxConfig, cliConfig).
+		WithWriter().
+		WithCAPIManager().
+		WithEksdUpgrader().
+		WithEksdInstaller().
+		WithKubectl().
+		WithValidatorClients().
+		WithPackageManagerWithoutWait(clusterSpec, "", uc.managementKubeconfig).
+		WithUpgradeClusterDefaulter(upgradeCLIConfig).
+		WithAwsIamAuth(clusterSpec.Cluster)
+
+	if uc.timeoutOptions.noTimeouts {
+		factory.WithNoTimeouts()
+	}
+
+	deps, err := factory.Build(ctx)
+	if err != nil {
+		return err
+	}
+	defer close(ctx, deps)
+
+	clusterSpec, err = deps.UpgradeClusterDefaulter.Run(ctx, clusterSpec)
+	if err != nil {
+		return err
+	}
 
 	workloadCluster := &types.Cluster{
-		Name:           clusterSpec.Name,
-		KubeconfigFile: uc.kubeConfig(clusterSpec.Name),
+		Name:           clusterSpec.Cluster.Name,
+		KubeconfigFile: getKubeconfigPath(clusterSpec.Cluster.Name, uc.wConfig),
 	}
 
-	validationOpts := &upgradevalidations.UpgradeValidationOpts{
-		Kubectl:         kubectl,
-		Spec:            clusterSpec,
-		WorkloadCluster: workloadCluster,
-		Provider:        provider,
+	var managementCluster *types.Cluster
+	if clusterSpec.ManagementCluster == nil {
+		managementCluster = workloadCluster
+	} else {
+		managementCluster = clusterSpec.ManagementCluster
 	}
+
+	validationOpts := &validations.Opts{
+		Kubectl:            deps.UnAuthKubectlClient,
+		Spec:               clusterSpec,
+		WorkloadCluster:    workloadCluster,
+		ManagementCluster:  managementCluster,
+		Provider:           deps.Provider,
+		CliConfig:          cliConfig,
+		SkippedValidations: skippedValidations,
+		KubeClient:         deps.UnAuthKubeClient.KubeconfigClient(managementCluster.KubeconfigFile),
+		ManifestReader:     deps.ManifestReader,
+		BundlesOverride:    cc.bundlesOverride,
+	}
+
 	upgradeValidations := upgradevalidations.New(validationOpts)
 
-	err = upgradeCluster.Run(ctx, clusterSpec, workloadCluster, upgradeValidations, uc.forceClean)
-	if err == nil {
-		writer.CleanUpTemp()
+	if clusterConfig.IsSelfManaged() {
+		upgrade := management.NewUpgrade(
+			deps.UnAuthKubeClient,
+			deps.Provider,
+			deps.CAPIManager,
+			deps.ClusterManager,
+			deps.GitOpsFlux,
+			deps.Writer,
+			deps.EksdUpgrader,
+			deps.EksdInstaller,
+			deps.ClusterApplier,
+			deps.PackageManager,
+			deps.AwsIamAuth,
+		)
+
+		err = upgrade.Run(ctx, clusterSpec, managementCluster, upgradeValidations)
+
+	} else {
+		upgradeWorkloadCluster := workload.NewUpgrade(
+			deps.UnAuthKubeClient,
+			deps.Provider,
+			deps.ClusterManager,
+			deps.GitOpsFlux,
+			deps.Writer,
+			deps.ClusterApplier,
+			deps.EksdInstaller,
+			deps.PackageManager,
+			deps.AwsIamAuth,
+		)
+		err = upgradeWorkloadCluster.Run(ctx, workloadCluster, clusterSpec, upgradeValidations)
 	}
+
+	cleanup(deps, &err)
 	return err
 }
 
@@ -180,8 +246,16 @@ func (uc *upgradeClusterOptions) commonValidations(ctx context.Context) (cluster
 	if err != nil {
 		return nil, err
 	}
-	if !validations.KubeConfigExists(clusterConfig.Name, clusterConfig.Name, uc.wConfig, kubeconfigPattern) {
-		return nil, fmt.Errorf("KubeConfig doesn't exists for cluster %s", clusterConfig.Name)
+
+	if uc.wConfig == "" && uc.managementKubeconfig != "" && clusterConfig.IsSelfManaged() {
+		uc.wConfig = uc.managementKubeconfig
+		uc.managementKubeconfig = ""
 	}
+
+	kubeconfigPath := getKubeconfigPath(clusterConfig.Name, uc.wConfig)
+	if err := kubeconfig.ValidateFilename(kubeconfigPath); err != nil {
+		return nil, err
+	}
+
 	return clusterConfig, nil
 }

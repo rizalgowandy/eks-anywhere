@@ -1,0 +1,130 @@
+metadata:
+  creationTimestamp: null
+  labels:
+    eks-d-upgrader: "true"
+  name: my-node-node-upgrader
+  namespace: eksa-system
+spec:
+  containers:
+  - args:
+    - --target
+    - "1"
+    - --mount
+    - --uts
+    - --ipc
+    - --net
+    - /foo/eksa-upgrades/tools/upgrader
+    - upgrade
+    - status
+    command:
+    - nsenter
+    image: public.ecr.aws/eks-anywhere/node-upgrader:latest
+    name: post-upgrade-status
+    resources: {}
+    securityContext:
+      privileged: true
+  hostPID: true
+  initContainers:
+  - args:
+    - -r
+    - /eksa-upgrades
+    - /usr/host
+    command:
+    - cp
+    image: public.ecr.aws/eks-anywhere/node-upgrader:latest
+    name: components-copier
+    resources: {}
+    volumeMounts:
+    - mountPath: /usr/host
+      name: host-components
+    - mountPath: /eksa-upgrades/kube-vip.yaml
+      name: kube-vip
+      subPath: kube-vip.yaml
+  - args:
+    - --target
+    - "1"
+    - --mount
+    - --uts
+    - --ipc
+    - --net
+    - /foo/eksa-upgrades/tools/upgrader
+    - upgrade
+    - containerd
+    command:
+    - nsenter
+    image: public.ecr.aws/eks-anywhere/node-upgrader:latest
+    name: containerd-upgrader
+    resources: {}
+    securityContext:
+      privileged: true
+  - args:
+    - --target
+    - "1"
+    - --mount
+    - --uts
+    - --ipc
+    - --net
+    - /foo/eksa-upgrades/tools/upgrader
+    - upgrade
+    - cni-plugins
+    command:
+    - nsenter
+    image: public.ecr.aws/eks-anywhere/node-upgrader:latest
+    name: cni-plugins-upgrader
+    resources: {}
+    securityContext:
+      privileged: true
+  - args:
+    - --target
+    - "1"
+    - --mount
+    - --uts
+    - --ipc
+    - --net
+    - /foo/eksa-upgrades/tools/upgrader
+    - upgrade
+    - node
+    - --type
+    - FirstCP
+    - --k8sVersion
+    - v1.28.3-eks-1-28-9
+    - --etcdVersion
+    - v3.5.9-eks-1-28-9
+    command:
+    - nsenter
+    image: public.ecr.aws/eks-anywhere/node-upgrader:latest
+    name: kubeadm-upgrader
+    resources: {}
+    securityContext:
+      privileged: true
+  - args:
+    - --target
+    - "1"
+    - --mount
+    - --uts
+    - --ipc
+    - --net
+    - /foo/eksa-upgrades/tools/upgrader
+    - upgrade
+    - kubelet-kubectl
+    command:
+    - nsenter
+    image: public.ecr.aws/eks-anywhere/node-upgrader:latest
+    name: kubelet-kubectl-upgrader
+    resources: {}
+    securityContext:
+      privileged: true
+  nodeName: my-node
+  restartPolicy: OnFailure
+  volumes:
+  - hostPath:
+      path: /foo
+      type: DirectoryOrCreate
+    name: host-components
+  - configMap:
+      items:
+      - key: kube-vip.yaml
+        path: kube-vip.yaml
+      name: kube-vip-in-place-upgrade
+    name: kube-vip
+status: {}

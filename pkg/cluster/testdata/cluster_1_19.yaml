@@ -23,7 +23,15 @@ spec:
     name: eksa-unit-test
   kubernetesVersion: "1.19"
   workerNodeGroupConfigurations:
-    - count: 1
+    - name: workers-1
+      kubernetesVersion: "1.19"
+      count: 1
+      machineGroupRef:
+        kind: VSphereMachineConfig
+        name: eksa-unit-test
+    - name: workers-2
+      kubernetesVersion: 1.20
+      count: 1
       machineGroupRef:
         kind: VSphereMachineConfig
         name: eksa-unit-test
@@ -34,10 +42,7 @@ metadata:
   name: eksa-unit-test
 spec:
   datacenter: "myDatacenter"
-  datastore: "myDatastore"
-  folder: "myFolder"
-  network: "myNetwork"
-  resourcePool: "myResourcePool"
+  network: "/myDatacenter/network-1"
   server: "myServer"
   insecure: false
   thumbprint: "myTlsThumbprint"
@@ -47,10 +52,12 @@ kind: VSphereMachineConfig
 metadata:
   name: eksa-unit-test-cp
 spec:
+  datastore: "myDatastore"
   diskGiB: 25
   memoryMiB: 8192
   numCPUs: 2
   osFamily: ubuntu
+  resourcePool: "myResourcePool"
   users:
     - name: mySshUsername
       sshAuthorizedKeys:
@@ -61,10 +68,12 @@ kind: VSphereMachineConfig
 metadata:
   name: eksa-unit-test
 spec:
+  datastore: "myDatastore"
   diskGiB: 25
   memoryMiB: 8192
   numCPUs: 2
   osFamily: ubuntu
+  resourcePool: "myResourcePool"
   users:
     - name: mySshUsername
       sshAuthorizedKeys:

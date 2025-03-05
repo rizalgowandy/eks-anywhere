@@ -1,0 +1,123 @@
+version: 0.2
+
+env:
+  variables:
+    INTEGRATION_TEST_MAX_CONCURRENT_TEST_COUNT: 20
+    EKSA_GIT_KNOWN_HOSTS: "/tmp/known_hosts"
+    EKSA_GIT_PRIVATE_KEY: "/tmp/private-key"
+    T_TINKERBELL_MAX_HARDWARE_PER_TEST: 4
+    T_TINKERBELL_INVENTORY_CSV: "hardware-manifests/inventory.csv"
+    T_TINKERBELL_BOOTSTRAP_INTERFACE: "ens192"
+    TEST_RUNNER_GOVC_LIBRARY: "eks-a-templates"
+    TEST_RUNNER_GOVC_TEMPLATE: "eks-a-admin-ci"
+    INTEGRATION_TEST_INFRA_CONFIG: "/tmp/test-infra.yml"
+  secrets-manager:
+    EKSA_AWS_ACCESS_KEY_ID: "packages_ci_beta:aws_access_key_id"
+    EKSA_AWS_SECRET_ACCESS_KEY: "packages_ci_beta:aws_secret_access_key_id"
+    EKSA_AWS_REGION: "packages_ci_beta:aws_region"
+    EKSA_GITHUB_TOKEN: "github-eks-anywhere-flux-bot:github-token"
+    T_GITHUB_USER: "github-eks-anywhere-flux-bot:github-user"
+    T_GIT_REPOSITORY: "github-eks-anywhere-flux-bot:github-repository"
+    T_GIT_SSH_REPO_URL: "github-eks-anywhere-flux-bot:generic-git-repository-url"
+    T_REGISTRY_MIRROR_ENDPOINT_TINKERBELL: "harbor-registry-data:tinkerbell_endpoint"
+    T_REGISTRY_MIRROR_PORT_TINKERBELL: "harbor-registry-data:tinkerbell_port"
+    T_REGISTRY_MIRROR_USERNAME_TINKERBELL: "harbor-registry-data:tinkerbell_username"
+    T_REGISTRY_MIRROR_PASSWORD_TINKERBELL: "harbor-registry-data:tinkerbell_password"
+    T_REGISTRY_MIRROR_CA_CERT_TINKERBELL: "harbor-registry-data:tinkerbell_caCert"
+    T_PRIVATE_REGISTRY_MIRROR_ENDPOINT_TINKERBELL: "harbor-registry-data:authenticated_tinkerbell_endpoint"
+    T_PRIVATE_REGISTRY_MIRROR_PORT_TINKERBELL: "harbor-registry-data:authenticated_tinkerbell_port"
+    T_PRIVATE_REGISTRY_MIRROR_USERNAME_TINKERBELL: "harbor-registry-data:authenticated_tinkerbell_username"
+    T_PRIVATE_REGISTRY_MIRROR_PASSWORD_TINKERBELL: "harbor-registry-data:authenticated_tinkerbell_password"
+    T_PRIVATE_REGISTRY_MIRROR_CA_CERT_TINKERBELL: "harbor-registry-data:authenticated_tinkerbell_caCert"
+    T_AWS_IAM_ROLE_ARN: "aws-iam-auth-role:ec2_role_arn"
+    T_TINKERBELL_IMAGE_UBUNTU_1_28: "tinkerbell_ci:image_ubuntu_1_28"
+    T_TINKERBELL_IMAGE_UBUNTU_1_29: "tinkerbell_ci:image_ubuntu_1_29"
+    T_TINKERBELL_IMAGE_UBUNTU_1_30: "tinkerbell_ci:image_ubuntu_1_30"
+    T_TINKERBELL_IMAGE_UBUNTU_1_31: "tinkerbell_ci:image_ubuntu_1_31"
+    T_TINKERBELL_IMAGE_UBUNTU_1_32: "tinkerbell_ci:image_ubuntu_1_32"
+    T_TINKERBELL_IMAGE_UBUNTU_2204_1_28: "tinkerbell_ci:image_ubuntu_2204_1_28"
+    T_TINKERBELL_IMAGE_UBUNTU_2204_1_29: "tinkerbell_ci:image_ubuntu_2204_1_29"
+    T_TINKERBELL_IMAGE_UBUNTU_2204_1_29_RTOS: "tinkerbell_ci:image_ubuntu_2204_1_29_rtos"
+    T_TINKERBELL_IMAGE_UBUNTU_2204_1_29_GENERIC: "tinkerbell_ci:image_ubuntu_2204_1_29_generic"
+    T_TINKERBELL_IMAGE_UBUNTU_2204_1_30: "tinkerbell_ci:image_ubuntu_2204_1_30"
+    T_TINKERBELL_IMAGE_UBUNTU_2204_1_31: "tinkerbell_ci:image_ubuntu_2204_1_31"
+    T_TINKERBELL_IMAGE_UBUNTU_2204_1_32: "tinkerbell_ci:image_ubuntu_2204_1_32"
+    T_TINKERBELL_IMAGE_REDHAT_1_28: "tinkerbell_ci:image_redhat_1_28"
+    T_TINKERBELL_IMAGE_REDHAT_1_29: "tinkerbell_ci:image_redhat_1_29"
+    T_TINKERBELL_IMAGE_REDHAT_1_30: "tinkerbell_ci:image_redhat_1_30"
+    T_TINKERBELL_IMAGE_REDHAT_1_31: "tinkerbell_ci:image_redhat_1_31"
+    T_TINKERBELL_IMAGE_REDHAT_1_32: "tinkerbell_ci:image_redhat_1_32"
+    T_TINKERBELL_IMAGE_REDHAT_9_1_28: "tinkerbell_ci:image_redhat_9_1_28"
+    T_TINKERBELL_IMAGE_REDHAT_9_1_29: "tinkerbell_ci:image_redhat_9_1_29"
+    T_TINKERBELL_IMAGE_REDHAT_9_1_30: "tinkerbell_ci:image_redhat_9_1_30"
+    T_TINKERBELL_IMAGE_REDHAT_9_1_31: "tinkerbell_ci:image_redhat_9_1_31"
+    T_TINKERBELL_IMAGE_REDHAT_9_1_32: "tinkerbell_ci:image_redhat_9_1_32"
+    T_TINKERBELL_SSH_AUTHORIZED_KEY: "vsphere_ci_beta_connection:ssh_authorized_key"
+    T_TINKERBELL_CP_NETWORK_CIDR: "tinkerbell_ci:cp_network_cidr"
+    T_TINKERBELL_S3_INVENTORY_CSV_KEY: "tinkerbell_ci:s3_inventory_csv"
+    T_TINKERBELL_S3_AG_INVENTORY_CSV_KEY: "tinkerbell_ci:s3_ag_inventory_csv"
+    TEST_RUNNER_GOVC_USERNAME: "tinkerbell_ci:govc_username"
+    TEST_RUNNER_GOVC_PASSWORD: "tinkerbell_ci:govc_password"
+    TEST_RUNNER_GOVC_URL: "tinkerbell_ci:govc_url"
+    TEST_RUNNER_GOVC_DATACENTER: "tinkerbell_ci:govc_datacenter"
+    TEST_RUNNER_GOVC_DATASTORE: "tinkerbell_ci:govc_datastore"
+    TEST_RUNNER_GOVC_RESOURCE_POOL: "tinkerbell_ci:govc_resource_pool"
+    TEST_RUNNER_GOVC_NETWORK: "tinkerbell_ci:govc_network"
+    TEST_RUNNER_GOVC_FOLDER: "tinkerbell_ci:govc_folder"
+    T_HTTP_PROXY_TINKERBELL: "proxy-config-data:httpProxyTinkerbell"
+    T_HTTPS_PROXY_TINKERBELL: "proxy-config-data:httpsProxyTinkerbell"
+    T_NO_PROXY_TINKERBELL: "proxy-config-data:noProxyTinkerbell"
+    T_TINKERBELL_BMC_CONSUMER_URL: "tinkerbell_ci:bmc_consumer_url"
+    T_TINKERBELL_BMC_HMAC_SECRETS: "tinkerbell_ci:bmc_hmac_secrets"
+    T_TINKERBELL_BMC_TIMESTAMP_HEADER: "tinkerbell_ci:bmc_timestamp_header"
+    T_TINKERBELL_BMC_INCLUDED_PAYLOAD_HEADERS: "tinkerbell_ci:bmc_included_payload_headers"
+    T_TINKERBELL_HOOK_ISO_URL: "tinkerbell_ci:hook_iso_url"
+    LICENSE_TOKEN: "extended_support:license_token"
+    LICENSE_TOKEN2: "extended_support:license_token2"
+    STAGING_LICENSE_TOKEN: "extended_support:staging_license_token"
+    STAGING_LICENSE_TOKEN2: "extended_support:staging_license_token2"
+phases:
+  pre_build:
+    commands:
+      - source ${CODEBUILD_SRC_DIR}/cmd/integration_test/build/script/setup_profile.sh
+      - source ${CODEBUILD_SRC_DIR}/cmd/integration_test/build/script/create_infra_config.sh
+      - ${CODEBUILD_SRC_DIR}/cmd/integration_test/build/script/start_docker.sh
+      - |
+        if ! [[ ${CODEBUILD_INITIATOR} =~ "codepipeline" ]]; then
+          make build-eks-a-for-e2e build-integration-test-binary e2e-tests-binary E2E_TAGS="e2e tinkerbell" E2E_OUTPUT_FILE=bin/tinkerbell/e2e.test
+        fi
+  build:
+    commands:
+      - export JOB_ID=$CODEBUILD_BUILD_ID
+      - BUNDLES_OVERRIDE=false
+      - |
+        if [ -f ./bin/local-bundle-release.yaml ]; then
+          BUNDLES_OVERRIDE=true
+        fi
+      - STAGE="dev"
+      - |
+        if [[ "$CODEBUILD_INITIATOR" =~ "aws-staging-eks-a-release" ]]; then
+          STAGE="staging"
+        fi
+      - SKIPPED_TESTS=$(yq e ".skipped_tests | @csv" ${CODEBUILD_SRC_DIR}/test/e2e/SKIPPED_TESTS.yaml)
+      - mv bin/tinkerbell/e2e.test bin/e2e.test
+      - >
+        ./bin/test e2e run
+        -c ${INTEGRATION_TEST_INFRA_CONFIG}
+        -s ${INTEGRATION_TEST_STORAGE_BUCKET}
+        -j ${JOB_ID}
+        -i ${INTEGRATION_TEST_INSTANCE_PROFILE}
+        -p ${INTEGRATION_TEST_MAX_CONCURRENT_TEST_COUNT}
+        -r 'Test'
+        -v 4
+        --skip ${SKIPPED_TESTS}
+        --bundles-override=${BUNDLES_OVERRIDE}
+        --cleanup-resources=true
+        --test-report-folder=reports
+        --branch-name=${BRANCH_NAME}
+        --stage=${STAGE}
+reports:
+  e2e-reports:
+    files:
+      - reports/junit-testing-*.xml
+    file-format: "JUNITXML"

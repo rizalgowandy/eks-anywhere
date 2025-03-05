@@ -2,115 +2,38 @@ package validations_test
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/aws/eks-anywhere/pkg/validations"
 )
 
-func TestValidateClusterName(t *testing.T) {
-	tests := []struct {
-		clusterName, name string
-		wantErr           error
-	}{
-		{
-			name:        "FailureSpecialChars",
-			clusterName: "test-cluster@123_",
-			wantErr:     errors.New("test-cluster@123_ is not a valid cluster name, cluster names must start with lowercase/uppercase letters and can include numbers and dashes. For instance 'testCluster-123' is a valid name but '123testCluster' is not. "),
-		},
-		{
-			name:        "FailureFirstCharNumeric",
-			clusterName: "123test-Cluster",
-			wantErr:     errors.New("123test-Cluster is not a valid cluster name, cluster names must start with lowercase/uppercase letters and can include numbers and dashes. For instance 'testCluster-123' is a valid name but '123testCluster' is not. "),
-		},
-		{
-			name:        "SuccessUpperCaseChars",
-			clusterName: "test-Cluster",
-			wantErr:     nil,
-		},
-		{
-			name:        "SuccessLowerCase",
-			clusterName: "test-cluster",
-			wantErr:     nil,
-		},
-		{
-			name:        "SuccessLowerCaseDashNumeric",
-			clusterName: "test-cluster123",
-			wantErr:     nil,
-		},
-		{
-			name:        "SuccessLowerCaseNumeric",
-			clusterName: "test123cluster",
-			wantErr:     nil,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(tt *testing.T) {
-			got := validations.ClusterName(tc.clusterName)
-			if !reflect.DeepEqual(tc.wantErr, got) {
-				t.Errorf("%v got = %v, want %v", tc.name, got, tc.wantErr)
-			}
-		})
-	}
-}
-
-func TestClusterNameLength(t *testing.T) {
-	tests := []struct {
-		clusterName, name string
-		wantErr           error
-	}{
-
-		{
-			name:        "SuccessClusterNameLength",
-			clusterName: "qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnm",
-			wantErr:     nil,
-		},
-		{
-			name:        "FailureClusterNameLength",
-			clusterName: "qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnm12345",
-			wantErr:     errors.New("number of characters in qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnm12345 should be less than 81"),
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(tt *testing.T) {
-			got := validations.ClusterNameLength(tc.clusterName)
-			if !reflect.DeepEqual(tc.wantErr, got) {
-				t.Errorf("%v got = %v, want %v", tc.name, got, tc.wantErr)
-			}
-		})
-	}
-}
-
 func TestOldClusterConfigExists(t *testing.T) {
-	tests := []struct {
-		name        string
-		clusterName string
-		expect      bool
+	tests := map[string]struct {
+		Filename string
+		Expect   bool
 	}{
-		{
-			name:        "Non existence should return false",
-			clusterName: "nonexistence",
-			expect:      false,
+		"Non existence should return false": {
+			Filename: "nonexistence",
+			Expect:   false,
 		},
-		{
-			name:        "Empty file should return false",
-			clusterName: "empty",
-			expect:      false,
+		"Empty file should return false": {
+			Filename: "empty",
+			Expect:   false,
 		},
-		{
-			name:        "Non Empty file should return true",
-			clusterName: "nonempty",
-			expect:      true,
+		"Non empty file should return true": {
+			Filename: "nonempty",
+			Expect:   true,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(tt *testing.T) {
-			got := validations.KubeConfigExists("testdata", tc.clusterName, "", "%s-eks-a-cluster.kubeconfig")
-			if tc.expect != got {
-				t.Errorf("%v got = %v, want %v", tc.name, got, tc.expect)
+	for tn, td := range tests {
+		t.Run(tn, func(t *testing.T) {
+			filename := filepath.Join("testdata", td.Filename)
+			got := validations.FileExistsAndIsNotEmpty(filename)
+			if td.Expect != got {
+				t.Errorf("FileExistsAndIsNotEmpty(%v): want = %v; got = %v", filename, td.Expect, got)
 			}
 		})
 	}
@@ -171,9 +94,9 @@ func TestValidateClusterNameArg(t *testing.T) {
 		},
 		{
 			name:          "Failure Cluster Length",
-			args:          []string{"qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnm12345"},
-			expectedError: errors.New("number of characters in qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnm12345 should be less than 81"),
-			expectedArg:   "qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnm12345",
+			args:          []string{"cluster-name-equals-to-36-characters"},
+			expectedError: errors.New("number of characters in cluster-name-equals-to-36-characters should be less than 36"),
+			expectedArg:   "cluster-name-equals-to-36-characters",
 		},
 	}
 
@@ -184,6 +107,49 @@ func TestValidateClusterNameArg(t *testing.T) {
 				t.Errorf("\n%v got Error = %v, want Error %v", tc.name, gotError, tc.expectedError)
 				t.Errorf("\n%v got Arguments = %v, want Arguments %v", tc.name, gotArgs, tc.expectedArg)
 
+			}
+		})
+	}
+}
+
+func TestValidateClusterNameFromCommandAndConfig(t *testing.T) {
+	tests := []struct {
+		name              string
+		args              []string
+		clusterNameConfig string
+		expectedError     error
+	}{
+		{
+			name:              "Success cluster name match",
+			args:              []string{"test-cluster"},
+			clusterNameConfig: "test-cluster",
+			expectedError:     nil,
+		},
+		{
+			name:              "Success empty Arguments",
+			args:              []string{},
+			clusterNameConfig: "test-cluster",
+			expectedError:     nil,
+		},
+		{
+			name:              "Failure invalid cluster name",
+			args:              []string{"123test-Cluster"},
+			clusterNameConfig: "test-cluster",
+			expectedError:     errors.New("please provide a valid <cluster-name>"),
+		},
+		{
+			name:              "Failure cluster name not match",
+			args:              []string{"test-cluster-1"},
+			clusterNameConfig: "test-cluster",
+			expectedError:     errors.New("please make sure cluster name provided in command matches with cluster name in config file"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(tt *testing.T) {
+			gotError := validations.ValidateClusterNameFromCommandAndConfig(tc.args, tc.clusterNameConfig)
+			if !reflect.DeepEqual(tc.expectedError, gotError) {
+				t.Errorf("\n%v got Error = %v, want Error %v", tc.name, gotError, tc.expectedError)
 			}
 		})
 	}

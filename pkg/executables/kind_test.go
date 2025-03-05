@@ -5,16 +5,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/golang/mock/gomock"
 
 	"github.com/aws/eks-anywhere/internal/test"
+	"github.com/aws/eks-anywhere/pkg/api/v1alpha1"
 	"github.com/aws/eks-anywhere/pkg/bootstrapper"
 	"github.com/aws/eks-anywhere/pkg/cluster"
+	"github.com/aws/eks-anywhere/pkg/constants"
 	"github.com/aws/eks-anywhere/pkg/executables"
 	mockexecutables "github.com/aws/eks-anywhere/pkg/executables/mocks"
+	"github.com/aws/eks-anywhere/pkg/registrymirror"
 	"github.com/aws/eks-anywhere/pkg/types"
 )
 
@@ -25,8 +30,16 @@ func TestKindCreateBootstrapClusterSuccess(t *testing.T) {
 
 	clusterName := "test_cluster"
 	clusterSpec := test.NewClusterSpec(func(s *cluster.Spec) {
-		s.Name = clusterName
-		s.VersionsBundle = versionBundle
+		s.Cluster.Name = clusterName
+		s.VersionsBundles["1.19"] = versionBundle
+		s.Cluster.Spec.ClusterNetwork = v1alpha1.ClusterNetwork{
+			Pods: v1alpha1.Pods{
+				CidrBlocks: []string{"1.1.1.1"},
+			},
+			Services: v1alpha1.Services{
+				CidrBlocks: []string{"2.2.2.2"},
+			},
+		}
 	})
 	eksClusterName := "test_cluster-eks-a-cluster"
 	kubeConfigFile := "test_cluster.kind.kubeconfig"
@@ -72,18 +85,15 @@ func TestKindCreateBootstrapClusterSuccess(t *testing.T) {
 			wantKindConfig: "testdata/kind_config_docker_mount_networking.yaml",
 		},
 		{
-			name:           "With docker option and disable CNI option",
+			name:           "With extra port mappings option",
 			wantKubeconfig: kubeConfigFile,
 			options: []testKindOption{
 				func(k *executables.Kind) bootstrapper.BootstrapClusterClientOption {
-					return k.WithExtraDockerMounts()
-				},
-				func(k *executables.Kind) bootstrapper.BootstrapClusterClientOption {
-					return k.WithDefaultCNIDisabled()
+					return k.WithExtraPortMappings([]int{80, 443})
 				},
 			},
 			env:            map[string]string{},
-			wantKindConfig: "testdata/kind_config_docker_mount.yaml",
+			wantKindConfig: "testdata/kind_config_extra_port_mappings.yaml",
 		},
 		{
 			name:           "With docker option and env option",
@@ -99,32 +109,23 @@ func TestKindCreateBootstrapClusterSuccess(t *testing.T) {
 			env:            map[string]string{"ENV_VAR1": "VALUE1", "ENV_VAR2": "VALUE2"},
 			wantKindConfig: "testdata/kind_config_docker_mount_networking.yaml",
 		},
-		{
-			name:           "With docker option, env option and disable CNI option",
-			wantKubeconfig: kubeConfigFile,
-			options: []testKindOption{
-				func(k *executables.Kind) bootstrapper.BootstrapClusterClientOption {
-					return k.WithEnv(map[string]string{"ENV_VAR1": "VALUE1", "ENV_VAR2": "VALUE2"})
-				},
-				func(k *executables.Kind) bootstrapper.BootstrapClusterClientOption {
-					return k.WithExtraDockerMounts()
-				},
-				func(k *executables.Kind) bootstrapper.BootstrapClusterClientOption {
-					return k.WithDefaultCNIDisabled()
-				},
-			},
-			env:            map[string]string{"ENV_VAR1": "VALUE1", "ENV_VAR2": "VALUE2"},
-			wantKindConfig: "testdata/kind_config_docker_mount.yaml",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			executable := mockexecutables.NewMockExecutable(mockCtrl)
+
+			var (
+				spec  *cluster.Spec
+				image string
+			)
+			spec = clusterSpec
+			image = kindImage
+
 			executable.EXPECT().ExecuteWithEnv(
 				ctx,
 				tt.env,
-				"create", "cluster", "--name", eksClusterName, "--kubeconfig", test.OfType("string"), "--image", kindImage, "--config", test.OfType("string"),
+				"create", "cluster", "--name", eksClusterName, "--kubeconfig", test.OfType("string"), "--image", image, "--config", test.OfType("string"),
 			).Return(bytes.Buffer{}, nil).Times(1).Do(
 				func(ctx context.Context, envs map[string]string, args ...string) (stdout bytes.Buffer, err error) {
 					gotKindConfig := args[9]
@@ -135,7 +136,159 @@ func TestKindCreateBootstrapClusterSuccess(t *testing.T) {
 			)
 
 			k := executables.NewKind(executable, writer)
-			gotKubeconfig, err := k.CreateBootstrapCluster(ctx, clusterSpec, testOptionsToBootstrapOptions(k, tt.options)...)
+			gotKubeconfig, err := k.CreateBootstrapCluster(ctx, spec, testOptionsToBootstrapOptions(k, tt.options)...)
+			if err != nil {
+				t.Fatalf("CreateBootstrapCluster() error = %v, wantErr %v", err, nil)
+			}
+
+			if !strings.HasSuffix(gotKubeconfig, tt.wantKubeconfig) {
+				t.Errorf("CreateBootstrapCluster() gotKubeconfig = %v, want to end with %v", gotKubeconfig, tt.wantKubeconfig)
+			}
+		})
+	}
+}
+
+func TestKindCreateBootstrapClusterSuccessWithRegistryMirror(t *testing.T) {
+	_, writer := test.NewWriter(t)
+
+	clusterName := "test_cluster"
+	eksClusterName := "test_cluster-eks-a-cluster"
+	kubeConfigFile := "test_cluster.kind.kubeconfig"
+	registryMirror := "registry-mirror.test"
+	registryMirrorWithPort := net.JoinHostPort(registryMirror, constants.DefaultHttpsPort)
+
+	// Initialize gomock
+	mockCtrl := gomock.NewController(t)
+
+	tests := []struct {
+		name           string
+		wantKubeconfig string
+		env            map[string]string
+		clusterSpec    *cluster.Spec
+		options        []testKindOption
+		wantKindConfig string
+	}{
+		{
+			name:           "With registry mirror option, no CA cert provided",
+			wantKubeconfig: kubeConfigFile,
+			clusterSpec: test.NewClusterSpec(func(s *cluster.Spec) {
+				s.Cluster.Name = clusterName
+				s.VersionsBundles["1.19"] = versionBundle
+				s.Cluster.Spec.RegistryMirrorConfiguration = &v1alpha1.RegistryMirrorConfiguration{
+					Endpoint: registryMirror,
+					Port:     constants.DefaultHttpsPort,
+					OCINamespaces: []v1alpha1.OCINamespace{
+						{
+							Registry:  "public.ecr.aws",
+							Namespace: "eks-anywhere",
+						},
+					},
+				}
+				s.Cluster.Spec.ClusterNetwork = v1alpha1.ClusterNetwork{
+					Pods: v1alpha1.Pods{
+						CidrBlocks: []string{"1.1.1.1"},
+					},
+					Services: v1alpha1.Services{
+						CidrBlocks: []string{"2.2.2.2"},
+					},
+				}
+			}),
+			env:            map[string]string{},
+			wantKindConfig: "testdata/kind_config_registry_mirror_insecure.yaml",
+		},
+		{
+			name:           "With registry mirror option, with CA cert",
+			wantKubeconfig: kubeConfigFile,
+			clusterSpec: test.NewClusterSpec(func(s *cluster.Spec) {
+				s.Cluster.Name = clusterName
+				s.VersionsBundles["1.19"] = versionBundle
+				s.Cluster.Spec.RegistryMirrorConfiguration = &v1alpha1.RegistryMirrorConfiguration{
+					Endpoint:      registryMirror,
+					Port:          constants.DefaultHttpsPort,
+					CACertContent: "test",
+				}
+				s.Cluster.Spec.ClusterNetwork = v1alpha1.ClusterNetwork{
+					Pods: v1alpha1.Pods{
+						CidrBlocks: []string{"1.1.1.1"},
+					},
+					Services: v1alpha1.Services{
+						CidrBlocks: []string{"2.2.2.2"},
+					},
+				}
+			}),
+			env:            map[string]string{},
+			wantKindConfig: "testdata/kind_config_registry_mirror_with_ca.yaml",
+		},
+		{
+			name:           "With registry mirror option, with auth",
+			wantKubeconfig: kubeConfigFile,
+			clusterSpec: test.NewClusterSpec(func(s *cluster.Spec) {
+				s.Cluster.Name = clusterName
+				s.VersionsBundles["1.19"] = versionBundle
+				s.Cluster.Spec.RegistryMirrorConfiguration = &v1alpha1.RegistryMirrorConfiguration{
+					Endpoint: registryMirror,
+					Port:     constants.DefaultHttpsPort,
+					OCINamespaces: []v1alpha1.OCINamespace{
+						{
+							Registry:  "public.ecr.aws",
+							Namespace: "eks-anywhere",
+						},
+						{
+							Registry:  "783794618700.dkr.ecr.us-west-2.amazonaws.com",
+							Namespace: "curated-packages",
+						},
+					},
+					Authenticate: true,
+				}
+				s.Cluster.Spec.ClusterNetwork = v1alpha1.ClusterNetwork{
+					Pods: v1alpha1.Pods{
+						CidrBlocks: []string{"1.1.1.1"},
+					},
+					Services: v1alpha1.Services{
+						CidrBlocks: []string{"2.2.2.2"},
+					},
+				}
+			}),
+			env:            map[string]string{},
+			wantKindConfig: "testdata/kind_config_registry_mirror_with_auth.yaml",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			executable := mockexecutables.NewMockExecutable(mockCtrl)
+
+			var (
+				spec  *cluster.Spec
+				image string
+			)
+			spec = tt.clusterSpec
+			registry := registryMirrorWithPort
+			if r, ok := registrymirror.FromCluster(spec.Cluster).NamespacedRegistryMap[constants.DefaultCoreEKSARegistry]; ok {
+				registry = r
+			}
+			image = fmt.Sprintf("%s/l0g8r8j6/kubernetes-sigs/kind/node:v1.20.2", registry)
+
+			if spec.Cluster.Spec.RegistryMirrorConfiguration.Authenticate {
+				t.Setenv("REGISTRY_USERNAME", "username")
+				t.Setenv("REGISTRY_PASSWORD", "password")
+			}
+
+			executable.EXPECT().ExecuteWithEnv(
+				ctx,
+				tt.env,
+				"create", "cluster", "--name", eksClusterName, "--kubeconfig", test.OfType("string"), "--image", image, "--config", test.OfType("string"),
+			).Return(bytes.Buffer{}, nil).Times(1).Do(
+				func(ctx context.Context, envs map[string]string, args ...string) (stdout bytes.Buffer, err error) {
+					gotKindConfig := args[9]
+					test.AssertFilesEquals(t, gotKindConfig, tt.wantKindConfig)
+
+					return bytes.Buffer{}, nil
+				},
+			)
+
+			k := executables.NewKind(executable, writer)
+			gotKubeconfig, err := k.CreateBootstrapCluster(ctx, spec, testOptionsToBootstrapOptions(k, tt.options)...)
 			if err != nil {
 				t.Fatalf("CreateBootstrapCluster() error = %v, wantErr %v", err, nil)
 			}
@@ -149,8 +302,8 @@ func TestKindCreateBootstrapClusterSuccess(t *testing.T) {
 
 func TestKindCreateBootstrapClusterExecutableError(t *testing.T) {
 	clusterSpec := test.NewClusterSpec(func(s *cluster.Spec) {
-		s.Name = "clusterName"
-		s.VersionsBundle = versionBundle
+		s.Cluster.Name = "clusterName"
+		s.VersionsBundles["1.19"] = versionBundle
 	})
 
 	ctx := context.Background()
@@ -159,6 +312,41 @@ func TestKindCreateBootstrapClusterExecutableError(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	executable := mockexecutables.NewMockExecutable(mockCtrl)
 	executable.EXPECT().ExecuteWithEnv(ctx, map[string]string{}, gomock.Any()).Return(bytes.Buffer{}, errors.New("error from execute with env"))
+	k := executables.NewKind(executable, writer)
+	gotKubeconfig, err := k.CreateBootstrapCluster(ctx, clusterSpec)
+	if err == nil {
+		t.Fatal("Kind.CreateBootstrapCluster() error = nil")
+	}
+
+	if gotKubeconfig != "" {
+		t.Errorf("CreateBootstrapCluster() gotKubeconfig = %v, want empty string", gotKubeconfig)
+	}
+}
+
+func TestKindCreateBootstrapClusterExecutableWithRegistryMirrorError(t *testing.T) {
+	registryMirror := "registry-mirror.test"
+	clusterSpec := test.NewClusterSpec(func(s *cluster.Spec) {
+		s.Cluster.Name = "clusterName"
+		s.VersionsBundles["1.19"] = versionBundle
+		s.Cluster.Spec.RegistryMirrorConfiguration = &v1alpha1.RegistryMirrorConfiguration{
+			Endpoint:     registryMirror,
+			Port:         constants.DefaultHttpsPort,
+			Authenticate: true,
+		}
+	})
+
+	if err := os.Unsetenv("REGISTRY_USERNAME"); err != nil {
+		t.Fatalf(err.Error())
+	}
+	if err := os.Unsetenv("REGISTRY_PASSWORD"); err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	ctx := context.Background()
+	_, writer := test.NewWriter(t)
+
+	mockCtrl := gomock.NewController(t)
+	executable := mockexecutables.NewMockExecutable(mockCtrl)
 	k := executables.NewKind(executable, writer)
 	gotKubeconfig, err := k.CreateBootstrapCluster(ctx, clusterSpec)
 	if err == nil {

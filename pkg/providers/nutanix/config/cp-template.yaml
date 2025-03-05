@@ -1,0 +1,863 @@
+{{- $kube_minor_version := (index (splitList "." (trimPrefix "v" .kubernetesVersion)) 1) -}}
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: NutanixCluster
+metadata:
+  name: "{{.clusterName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+{{- if .failureDomains }}
+  failureDomains:
+  {{- range $index, $value := .failureDomains}}
+  - name: "{{ $value.Name }}"
+    cluster:
+    {{- if (eq $value.Cluster.Type "uuid") }}
+      type: "uuid"
+      uuid: "{{ $value.Cluster.UUID }}"
+    {{- else if (eq $value.Cluster.Type "name") }}
+      type: "name"
+      name: "{{ $value.Cluster.Name }}"
+    {{- end}}
+    subnets:
+    {{- range $value.Subnets}}
+      {{- if (eq .Type "uuid") }}
+    - type: "uuid"
+      uuid: "{{ .UUID }}"
+      {{- else if (eq .Type "name") }}
+    - type: "name"
+      name: "{{ .Name }}"
+      {{- end}}
+    {{- end}}
+    controlPlane: true
+  {{- end }}
+{{- else }}
+  failureDomains: []
+{{- end}}
+  prismCentral:
+{{- if .nutanixAdditionalTrustBundle }}
+    additionalTrustBundle:
+      kind: String
+      data: |
+{{ .nutanixAdditionalTrustBundle | indent 8 }}
+{{- end }}
+    address: "{{.nutanixEndpoint}}"
+    port: {{.nutanixPort}}
+    insecure: {{.nutanixInsecure}}
+    credentialRef:
+      name: "{{.secretName}}"
+      kind: Secret
+  controlPlaneEndpoint:
+    host: "{{.controlPlaneEndpointIp}}"
+    port: 6443
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: "{{.clusterName}}"
+  name: "{{.clusterName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  clusterNetwork:
+    services:
+      cidrBlocks: {{.serviceCidrs}}
+    pods:
+      cidrBlocks: {{.podCidrs}}
+    serviceDomain: "cluster.local"
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: "{{.clusterName}}"
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: NutanixCluster
+    name: "{{.clusterName}}"
+{{- if .externalEtcd }}
+  managedExternalEtcdRef:
+    apiVersion: etcdcluster.cluster.x-k8s.io/v1beta1
+    kind: EtcdadmCluster
+    name: "{{.clusterName}}-etcd"
+    namespace: "{{.eksaSystemNamespace}}"
+{{- end }}
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  name: "{{.clusterName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  replicas: {{.controlPlaneReplicas}}
+  version: "{{.kubernetesVersion}}"
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: NutanixMachineTemplate
+      name: "{{.controlPlaneTemplateName}}"
+{{- if .upgradeRolloutStrategy }}
+  rolloutStrategy:
+    rollingUpdate:
+      maxSurge: {{.maxSurge}} 
+{{- end }}
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      imageRepository: "{{.kubernetesRepository}}"
+      apiServer:
+        certSANs:
+          - localhost
+          - 127.0.0.1
+          - 0.0.0.0
+          {{- with .apiServerCertSANs }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        extraArgs:
+          cloud-provider: external
+          audit-policy-file: /etc/kubernetes/audit-policy.yaml
+          audit-log-path: /var/log/kubernetes/api-audit.log
+          audit-log-maxage: "30"
+          audit-log-maxbackup: "10"
+          audit-log-maxsize: "512"
+{{- if and .encryptionProviderConfig (ge (atoi $kube_minor_version) 29) }}
+          feature-gates: "KMSv1=true"
+{{- end }}
+{{- if .apiServerExtraArgs }}
+{{ .apiServerExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+        extraVolumes:
+        - hostPath: /etc/kubernetes/audit-policy.yaml
+          mountPath: /etc/kubernetes/audit-policy.yaml
+          name: audit-policy
+          pathType: File
+          readOnly: true
+        - hostPath: /var/log/kubernetes
+          mountPath: /var/log/kubernetes
+          name: audit-log-dir
+          pathType: DirectoryOrCreate
+          readOnly: false
+{{- if .awsIamAuth}}
+        - hostPath: /var/lib/kubeadm/aws-iam-authenticator/
+          mountPath: /etc/kubernetes/aws-iam-authenticator/
+          name: authconfig
+          readOnly: false
+        - hostPath: /var/lib/kubeadm/aws-iam-authenticator/pki/
+          mountPath: /var/aws-iam-authenticator/
+          name: awsiamcert
+          readOnly: false
+{{- end}}
+{{- if .encryptionProviderConfig }}
+        - hostPath: /etc/kubernetes/enc/encryption-config.yaml
+          mountPath: /etc/kubernetes/enc/encryption-config.yaml
+          name: encryption-config
+          pathType: File
+          readOnly: false
+        - hostPath: /var/run/kmsplugin/
+          mountPath: /var/run/kmsplugin/
+          name: kms-plugin
+          readOnly: false
+{{- end }}
+      controllerManager:
+        extraArgs:
+          cloud-provider: external
+          enable-hostpath-provisioner: "true"
+      dns:
+        imageRepository: {{.corednsRepository}}
+        imageTag: {{.corednsVersion}}
+      etcd:
+{{- if .externalEtcd }}
+        external:
+          endpoints: []
+          caFile: "/etc/kubernetes/pki/etcd/ca.crt"
+          certFile: "/etc/kubernetes/pki/apiserver-etcd-client.crt"
+          keyFile: "/etc/kubernetes/pki/apiserver-etcd-client.key"
+{{- else }}
+        local:
+          imageRepository: {{.etcdRepository}}
+          imageTag: {{.etcdImageTag}}
+{{- end }}
+    files:
+{{- if .kubeletConfiguration }}
+    - content: |
+{{ .kubeletConfiguration | indent 8 }}
+      owner: root:root
+      permissions: "0644"
+      path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.yaml
+{{- end }}
+{{- if .encryptionProviderConfig }}
+    - content: |
+{{ .encryptionProviderConfig | indent 8}}
+      owner: root:root
+      path: /etc/kubernetes/enc/encryption-config.yaml
+{{- end }}
+    - content: |
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          creationTimestamp: null
+          name: kube-vip
+          namespace: kube-system
+        spec:
+          containers:
+            - name: kube-vip
+              image: {{.kubeVipImage}}
+              imagePullPolicy: IfNotPresent
+              args:
+                - manager
+              env:
+                - name: vip_arp
+                  value: "true"
+                - name: address
+                  value: "{{.controlPlaneEndpointIp}}"
+                - name: port
+                  value: "6443"
+                - name: vip_cidr
+                  value: "32"
+                - name: cp_enable
+                  value: "true"
+                - name: cp_namespace
+                  value: kube-system
+                - name: vip_ddns
+                  value: "false"
+                - name: vip_leaderelection
+                  value: "true"
+                - name: vip_leaseduration
+                  value: "15"
+                - name: vip_renewdeadline
+                  value: "10"
+                - name: vip_retryperiod
+                  value: "2"
+                - name: svc_enable
+                  value: "{{.kubeVipSvcEnable}}"
+                - name: lb_enable
+                  value: "{{.kubeVipLBEnable}}"
+              securityContext:
+                capabilities:
+                  add:
+                    - NET_ADMIN
+                    - SYS_TIME
+                    - NET_RAW
+              volumeMounts:
+                - mountPath: /etc/kubernetes/admin.conf
+                  name: kubeconfig
+              resources: {}
+          hostNetwork: true
+          volumes:
+            - name: kubeconfig
+              hostPath:
+                type: FileOrCreate
+                path: /etc/kubernetes/admin.conf
+        status: {}
+      owner: root:root
+      path: /etc/kubernetes/manifests/kube-vip.yaml
+{{- if .registryCACert }}
+    - content: |
+{{ .registryCACert | indent 8 }}
+      owner: root:root
+      path: "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+{{- end }}
+{{- if .proxyConfig }}
+    - content: |
+        [Service]
+        Environment="HTTP_PROXY={{.httpProxy}}"
+        Environment="HTTPS_PROXY={{.httpsProxy}}"
+        Environment="NO_PROXY={{ stringsJoin .noProxy "," }}"
+      owner: root:root
+      path: /etc/systemd/system/containerd.service.d/http-proxy.conf
+{{- end }}
+{{- if .registryMirrorMap }}
+    - content: |
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+          {{- range $orig, $mirror := .registryMirrorMap }}
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ $orig }}"]
+            endpoint = ["https://{{ $mirror }}"]
+          {{- end }}
+{{- if or .registryCACert .insecureSkip }}
+          [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".tls]
+{{- if .registryCACert }}
+            ca_file = "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+{{- end }}
+{{- if .insecureSkip }}
+            insecure_skip_verify = {{ .insecureSkip }}
+{{- end }}
+{{- end }}
+{{- if .registryAuth }}
+          [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".auth]
+            username = "{{.registryUsername}}"
+            password = "{{.registryPassword}}"
+{{- end }}
+      owner: root:root
+      path: "/etc/containerd/config_append.toml"
+{{- end }}
+{{- if .awsIamAuth}}
+    - content: |
+        # clusters refers to the remote service.
+        clusters:
+          - name: aws-iam-authenticator
+            cluster:
+              certificate-authority: /var/aws-iam-authenticator/cert.pem
+              server: https://localhost:21362/authenticate
+        # users refers to the API Server's webhook configuration
+        # (we don't need to authenticate the API server).
+        users:
+          - name: apiserver
+        # kubeconfig files require a context. Provide one for the API Server.
+        current-context: webhook
+        contexts:
+        - name: webhook
+          context:
+            cluster: aws-iam-authenticator
+            user: apiserver
+      permissions: "0640"
+      owner: root:root
+      path: /var/lib/kubeadm/aws-iam-authenticator/kubeconfig.yaml
+    - contentFrom:
+        secret:
+          name: {{.clusterName}}-aws-iam-authenticator-ca
+          key: cert.pem
+      permissions: "0640"
+      owner: root:root
+      path: /var/lib/kubeadm/aws-iam-authenticator/pki/cert.pem
+    - contentFrom:
+        secret:
+          name: {{.clusterName}}-aws-iam-authenticator-ca
+          key: key.pem
+      permissions: "0640"
+      owner: root:root
+      path: /var/lib/kubeadm/aws-iam-authenticator/pki/key.pem
+{{- end}}
+    - content: |
+{{ .auditPolicy | indent 8 }}
+      owner: root:root
+      path: /etc/kubernetes/audit-policy.yaml
+    initConfiguration:
+{{- if .kubeletConfiguration }}
+      patches: 
+        directory: /etc/kubernetes/patches
+{{- end }}
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+          # We have to pin the cgroupDriver to cgroupfs as kubeadm >=1.21 defaults to systemd
+          # kind will implement systemd support in: https://github.com/kubernetes-sigs/kind/issues/1726
+          #cgroup-driver: cgroupfs
+{{- if not .kubeletConfiguration }}
+          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- end }}
+{{- if .nodeLabelArgs }}
+{{ .nodeLabelArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- if .controlPlaneTaints }}
+        taints:
+{{- range .controlPlaneTaints}}
+          - key: {{ .Key }}
+            value: {{ .Value }}
+            effect: {{ .Effect }}
+{{- if .TimeAdded }}
+            timeAdded: {{ .TimeAdded }}
+{{- end }}
+{{- end }}
+{{- end }}
+    joinConfiguration:
+{{- if .kubeletConfiguration }}
+      patches: 
+        directory: /etc/kubernetes/patches
+{{- end }}
+      nodeRegistration:
+        criSocket: /var/run/containerd/containerd.sock
+        kubeletExtraArgs:
+          cloud-provider: external
+{{- if not .kubeletConfiguration }}
+          read-only-port: "0"
+          anonymous-auth: "false"
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- end }}
+{{- if .nodeLabelArgs }}
+{{ .nodeLabelArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- if .controlPlaneTaints }}
+        taints:
+{{- range .controlPlaneTaints}}
+          - key: {{ .Key }}
+            value: {{ .Value }}
+            effect: {{ .Effect }}
+{{- if .TimeAdded }}
+            timeAdded: {{ .TimeAdded }}
+{{- end }}
+{{- end }}
+{{- end }}
+        name: "{{`{{ ds.meta_data.hostname }}`}}"
+    users:
+      - name: "{{.controlPlaneSshUsername }}"
+        lockPassword: false
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        sshAuthorizedKeys:
+          - "{{.controlPlaneSshAuthorizedKey}}"
+    preKubeadmCommands:
+{{- if .registryMirrorMap }}
+      - cat /etc/containerd/config_append.toml >> /etc/containerd/config.toml
+{{- end }}
+{{- if or .proxyConfig .registryMirrorMap }}
+      - sudo systemctl daemon-reload
+      - sudo systemctl restart containerd
+{{- end }}
+      - hostnamectl set-hostname "{{`{{ ds.meta_data.hostname }}`}}"
+      - echo "::1         ipv6-localhost ipv6-loopback" >/etc/hosts
+      - echo "127.0.0.1   localhost" >>/etc/hosts
+      - echo "127.0.0.1   {{`{{ ds.meta_data.hostname }}`}}" >> /etc/hosts
+{{- if (ge (atoi $kube_minor_version) 29) }}
+      - "if [ -f /run/kubeadm/kubeadm.yaml ]; then sed -i 's#path: /etc/kubernetes/admin.conf#path: /etc/kubernetes/super-admin.conf#' /etc/kubernetes/manifests/kube-vip.yaml; fi"
+{{- end }}
+    postKubeadmCommands:
+      - echo export KUBECONFIG=/etc/kubernetes/admin.conf >> /root/.bashrc
+    useExperimentalRetryJoin: true
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: NutanixMachineTemplate
+metadata:
+  name: "{{.controlPlaneTemplateName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  template:
+    spec:
+      providerID: "nutanix://{{.clusterName}}-m1"
+      vcpusPerSocket: {{.vcpusPerSocket}}
+      vcpuSockets: {{.vcpuSockets}}
+      memorySize: {{.memorySize}}
+      systemDiskSize: {{.systemDiskSize}}
+      image:
+{{- if (eq .imageIDType "name") }}
+        type: name
+        name: "{{.imageName}}"
+{{ else if (eq .imageIDType "uuid") }}
+        type: uuid
+        uuid: "{{.imageUUID}}"
+{{- end }}
+      cluster:
+{{- if (eq .nutanixPEClusterIDType "name") }}
+        type: name
+        name: "{{.nutanixPEClusterName}}"
+{{- else if (eq .nutanixPEClusterIDType "uuid") }}
+        type: uuid
+        uuid: "{{.nutanixPEClusterUUID}}"
+{{- end }}
+      subnet:
+{{- if (eq .subnetIDType "name") }}
+        - type: name
+          name: "{{.subnetName}}"
+{{- else if (eq .subnetIDType "uuid") }}
+        - type: uuid
+          uuid: "{{.subnetUUID}}"
+{{ end }}
+{{- if .projectIDType}}
+      project:
+{{- if (eq .projectIDType "name") }}
+        type: name
+        name: "{{.projectName}}"
+{{- else if (eq .projectIDType "uuid") }}
+        type: uuid
+        uuid: "{{.projectUUID}}"
+{{ end }}
+{{ end }}
+{{- if .additionalCategories}}
+      additionalCategories:
+{{- range .additionalCategories}}
+        - key:   "{{ .Key }}"
+          value: "{{ .Value }}"
+{{- end }}
+{{- end }}
+{{- if .externalEtcd }}
+---
+kind: EtcdadmCluster
+apiVersion: etcdcluster.cluster.x-k8s.io/v1beta1
+metadata:
+  name: "{{.clusterName}}-etcd"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  replicas: {{.externalEtcdReplicas}}
+  etcdadmConfigSpec:
+    etcdadmBuiltin: true
+    format: {{.format}}
+{{- if .etcdNtpServers }}
+    ntp:
+      enabled: true
+      servers: {{ range .etcdNtpServers }}
+      - {{ . }}
+      {{- end }}
+{{- end }}
+    cloudInitConfig:
+      version: {{.externalEtcdVersion}}
+      installDir: "/usr/bin"
+{{- if .externalEtcdReleaseUrl }}
+      etcdReleaseURL: {{.externalEtcdReleaseUrl}}
+{{- end }}
+    preEtcdadmCommands:
+      - hostname "{{`{{ ds.meta_data.hostname }}`}}"
+      - echo "::1         ipv6-localhost ipv6-loopback" >/etc/hosts
+      - echo "127.0.0.1   localhost" >>/etc/hosts
+      - echo "127.0.0.1   {{`{{ ds.meta_data.hostname }}`}}" >>/etc/hosts
+      - echo "{{`{{ ds.meta_data.hostname }}`}}" >/etc/hostname
+{{- if .etcdCipherSuites }}
+    cipherSuites: {{.etcdCipherSuites}}
+{{- end }}
+    users:
+      - name: "{{.etcdSshUsername}}"
+        sshAuthorizedKeys:
+          - "{{.etcdSshAuthorizedKey}}"
+        sudo: ALL=(ALL) NOPASSWD:ALL
+{{- if .proxyConfig }}
+    proxy:
+      httpProxy: {{ .httpProxy }}
+      httpsProxy: {{ .httpsProxy }}
+      noProxy: {{ range .noProxy }}
+        - {{ . }}
+      {{- end }}
+{{- end }}
+{{- if .registryMirrorMap }}
+    registryMirror:
+      endpoint: {{ .publicMirror }}
+      {{- if .registryCACert }}
+      caCert: |
+{{ .registryCACert | indent 8 }}
+      {{- end }}
+{{- end }}
+  infrastructureTemplate:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: NutanixMachineTemplate
+    name: "{{.etcdTemplateName}}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: NutanixMachineTemplate
+metadata:
+  name: "{{.etcdTemplateName}}"
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  template:
+    spec:
+      providerID: "nutanix://{{.clusterName}}-m1"
+      vcpusPerSocket: {{.etcdVCPUsPerSocket}}
+      vcpuSockets: {{.etcdVcpuSockets}}
+      memorySize: {{.etcdMemorySize}}
+      systemDiskSize: {{.etcdSystemDiskSize}}
+      image:
+{{- if (eq .etcdImageIDType "name") }}
+        type: name
+        name: "{{.etcdImageName}}"
+{{ else if (eq .etcdImageIDType "uuid") }}
+        type: uuid
+        uuid: "{{.etcdImageUUID}}"
+{{ end }}
+      cluster:
+{{- if (eq .etcdNutanixPEClusterIDType "name") }}
+        type: name
+        name: "{{.etcdNutanixPEClusterName}}"
+{{- else if (eq .etcdNutanixPEClusterIDType "uuid") }}
+        type: uuid
+        uuid: "{{.etcdNutanixPEClusterUUID}}"
+{{ end }}
+      subnet:
+{{- if (eq .etcdSubnetIDType "name") }}
+        - type: name
+          name: "{{.etcdSubnetName}}"
+{{- else if (eq .etcdSubnetIDType "uuid") }}
+        - type: uuid
+          uuid: "{{.etcdSubnetUUID}}"
+{{ end }}
+{{- if .etcdProjectIDType}}
+      project:
+{{- if (eq .etcdProjectIDType "name") }}
+        type: name
+        name: "{{.etcdProjectName}}"
+{{- else if (eq .etcdProjectIDType "uuid") }}
+        type: uuid
+        uuid: "{{.etcdProjectUUID}}"
+{{ end }}
+{{ end }}
+{{- if .etcdAdditionalCategories}}
+      additionalCategories:
+{{- range .etcdAdditionalCategories}}
+        - key:   "{{ .Key }}"
+          value: "{{ .Value }}"
+{{- end }}
+{{- end }}
+{{- end }}
+---
+{{- if .registryAuth }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-credentials
+  namespace: {{.eksaSystemNamespace}}
+  labels:
+    clusterctl.cluster.x-k8s.io/move: "true"
+data:
+  username: {{.registryUsername | b64enc}}
+  password: {{.registryPassword | b64enc}}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.clusterName}}-nutanix-ccm
+  namespace: "{{.eksaSystemNamespace}}"
+data:
+  nutanix-ccm.yaml: |
+{{- if .nutanixAdditionalTrustBundle }}
+    ---
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: user-ca-bundle
+      namespace: kube-system
+    data:
+      ca.crt: |
+{{ .nutanixAdditionalTrustBundle | indent 8 }}
+{{- end }}
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: cloud-controller-manager
+      namespace: kube-system
+    ---
+    kind: ConfigMap
+    apiVersion: v1
+    metadata:
+      name: nutanix-config
+      namespace: kube-system
+    data:
+      nutanix_config.json: |-
+        {
+          "prismCentral": {
+            "address": "{{.nutanixEndpoint}}",
+            "port": {{.nutanixPort}},
+            "insecure": {{.nutanixInsecure}},
+            "credentialRef": {
+              "kind": "secret",
+              "name": "nutanix-creds",
+              "namespace": "kube-system"
+            }{{- if .nutanixAdditionalTrustBundle }},
+            "additionalTrustBundle": {
+              "kind": "ConfigMap",
+              "name": "user-ca-bundle",
+              "namespace": "kube-system"
+            }{{- end }}
+          },
+          "enableCustomLabeling": false,
+          "topologyDiscovery": {
+            "type": "Prism"
+          },
+          "ignoredNodeIPs": [{{ range $i, $ip := .ccmIgnoredNodeIPs }}{{ if $i }}, {{ end }}"{{ $ip }}"{{ end }}]
+        }
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      annotations:
+        rbac.authorization.kubernetes.io/autoupdate: "true"
+      name: system:cloud-controller-manager
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - configmaps
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - nodes
+        verbs:
+          - "*"
+      - apiGroups:
+          - ""
+        resources:
+          - nodes/status
+        verbs:
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - serviceaccounts
+        verbs:
+          - create
+      - apiGroups:
+          - ""
+        resources:
+          - endpoints
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+    ---
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: system:cloud-controller-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: system:cloud-controller-manager
+    subjects:
+      - kind: ServiceAccount
+        name: cloud-controller-manager
+        namespace: kube-system
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        k8s-app: nutanix-cloud-controller-manager
+      name: nutanix-cloud-controller-manager
+      namespace: kube-system
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          k8s-app: nutanix-cloud-controller-manager
+      strategy:
+        type: Recreate
+      template:
+        metadata:
+          labels:
+            k8s-app: nutanix-cloud-controller-manager
+        spec:
+          hostNetwork: true
+          priorityClassName: system-cluster-critical
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          serviceAccountName: cloud-controller-manager
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    k8s-app: nutanix-cloud-controller-manager
+                topologyKey: kubernetes.io/hostname
+          dnsPolicy: Default
+          tolerations:
+            - effect: NoSchedule
+              key: node-role.kubernetes.io/master
+              operator: Exists
+            - effect: NoSchedule
+              key: node-role.kubernetes.io/control-plane
+              operator: Exists
+            - effect: NoExecute
+              key: node.kubernetes.io/unreachable
+              operator: Exists
+              tolerationSeconds: 120
+            - effect: NoExecute
+              key: node.kubernetes.io/not-ready
+              operator: Exists
+              tolerationSeconds: 120
+            - effect: NoSchedule
+              key: node.cloudprovider.kubernetes.io/uninitialized
+              operator: Exists
+            - effect: NoSchedule
+              key: node.kubernetes.io/not-ready
+              operator: Exists
+          containers:
+            - image: "{{.cloudProviderImage}}"
+              imagePullPolicy: IfNotPresent
+              name: nutanix-cloud-controller-manager
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              args:
+                - "--leader-elect=true"
+                - "--cloud-config=/etc/cloud/nutanix_config.json"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 50Mi
+              volumeMounts:
+                - mountPath: /etc/cloud
+                  name: nutanix-config-volume
+                  readOnly: true
+          volumes:
+            - name: nutanix-config-volume
+              configMap:
+                name: nutanix-config
+---
+apiVersion: addons.cluster.x-k8s.io/v1beta1
+kind: ClusterResourceSet
+metadata:
+  name: {{.clusterName}}-nutanix-ccm-crs
+  namespace: "{{.eksaSystemNamespace}}"
+spec:
+  clusterSelector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: "{{.clusterName}}"
+  resources:
+  - kind: ConfigMap
+    name: {{.clusterName}}-nutanix-ccm
+  - kind: Secret
+    name: {{.clusterName}}-nutanix-ccm-secret
+{{- if .nutanixAdditionalTrustBundle }}
+  - kind: ConfigMap
+    name: user-ca-bundle
+{{- end }}
+  strategy: Reconcile
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "{{.clusterName}}-nutanix-ccm-secret"
+  namespace: "{{.eksaSystemNamespace}}"
+stringData:
+  nutanix-ccm-secret.yaml: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: nutanix-creds
+      namespace: kube-system
+    stringData:
+      credentials: |-
+        [
+          {        
+            "type": "basic_auth",
+            "data": {
+              "prismCentral": {
+                "username": "{{ .nutanixPCUsername }}",
+                "password": "{{ .nutanixPCPassword }}"
+              },
+              "prismElements": null
+            }
+          }
+        ]
+type: addons.cluster.x-k8s.io/resource-set

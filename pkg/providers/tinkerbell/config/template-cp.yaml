@@ -1,0 +1,598 @@
+{{- $kube_minor_version := (index (splitList "." (trimPrefix "v" .kubernetesVersion)) 1) -}}
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: {{.clusterName}}
+  name: {{.clusterName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: {{.podCidrs}}
+    services:
+      cidrBlocks: {{.serviceCidrs}}
+  controlPlaneEndpoint:
+    host: {{.controlPlaneEndpointIp}}
+    port: 6443
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: {{.clusterName}}
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: TinkerbellCluster
+    name: {{.clusterName}}
+{{- if .externalEtcd }}
+  managedExternalEtcdRef:
+    apiVersion: etcdcluster.cluster.x-k8s.io/v1beta1
+    kind: EtcdadmCluster
+    name: {{.clusterName}}-etcd
+{{- end }}
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  name: {{.clusterName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  kubeadmConfigSpec:
+    clusterConfiguration:
+{{- if (ge (atoi $kube_minor_version) 29) }}
+      featureGates:
+        EtcdLearnerMode: false
+{{- end }}
+      imageRepository: {{.kubernetesRepository}}
+      etcd:
+{{- if .externalEtcd }}
+        external:
+          endpoints: []
+{{- if (eq .format "bottlerocket") }}
+          caFile: "/var/lib/kubeadm/pki/etcd/ca.crt"
+          certFile: "/var/lib/kubeadm/pki/server-etcd-client.crt"
+          keyFile: "/var/lib/kubeadm/pki/apiserver-etcd-client.key"
+{{- else }}
+          caFile: "/etc/kubernetes/pki/etcd/ca.crt"
+          certFile: "/etc/kubernetes/pki/apiserver-etcd-client.crt"
+          keyFile: "/etc/kubernetes/pki/apiserver-etcd-client.key"
+{{- end }}
+{{- else }}
+        local:
+          imageRepository: {{.etcdRepository}}
+          imageTag: {{.etcdImageTag}}
+{{- end }}
+      dns:
+        imageRepository: {{.corednsRepository}}
+        imageTag: {{.corednsVersion}}
+{{- if (eq .format "bottlerocket") }}
+      pause:
+        imageRepository: {{.pauseRepository}}
+        imageTag: {{.pauseVersion}}
+      bottlerocketBootstrap:
+        imageRepository: {{.bottlerocketBootstrapRepository}}
+        imageTag: {{.bottlerocketBootstrapVersion}}
+{{- end }}
+{{- if and .proxyConfig (eq .format "bottlerocket") }}
+      proxy:
+        httpsProxy: {{.httpsProxy}}
+        noProxy: {{ range .noProxy }}
+          - {{ . }}
+        {{- end }}
+{{- end }}
+{{- if and .registryMirrorMap (eq .format "bottlerocket") }}
+      registryMirror:
+        endpoint: {{ .publicMirror }}
+        {{- if .registryCACert }}
+        caCert: |
+{{ .registryCACert | indent 10 }}
+        {{- end }}
+{{- end }}
+{{- if .bottlerocketSettings }}
+{{ .bottlerocketSettings | indent 6 }}
+{{- end -}}
+{{- if .certBundles }}
+      certBundles:
+        {{- range .certBundles }}
+      - name: "{{ .Name }}"
+        data: |
+{{ .Data | indent 10 }}
+        {{- end }}
+{{- end}}
+      apiServer:
+        {{- with .apiServerCertSANs }}
+        certSANs:
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        extraArgs:
+          audit-policy-file: /etc/kubernetes/audit-policy.yaml
+          audit-log-path: /var/log/kubernetes/api-audit.log
+          audit-log-maxage: "30"
+          audit-log-maxbackup: "10"
+          audit-log-maxsize: "512"
+{{- if .apiserverExtraArgs }}
+{{ .apiserverExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+        extraVolumes:
+{{- if (eq .format "bottlerocket") }}
+        - hostPath: /var/lib/kubeadm/audit-policy.yaml
+{{- else }}
+        - hostPath: /etc/kubernetes/audit-policy.yaml
+{{- end }}
+          mountPath: /etc/kubernetes/audit-policy.yaml
+          name: audit-policy
+          pathType: File
+          readOnly: true
+        - hostPath: /var/log/kubernetes
+          mountPath: /var/log/kubernetes
+          name: audit-log-dir
+          pathType: DirectoryOrCreate
+          readOnly: false
+{{- if .awsIamAuth}}
+        - hostPath: /var/lib/kubeadm/aws-iam-authenticator/
+          mountPath: /etc/kubernetes/aws-iam-authenticator/
+          name: authconfig
+          readOnly: false
+        - hostPath: /var/lib/kubeadm/aws-iam-authenticator/pki/
+          mountPath: /var/aws-iam-authenticator/
+          name: awsiamcert
+          readOnly: false
+{{- end}}
+{{- /*
+  BottleRocket uses different host paths for kubeconfigs requiring host mount path overwrites for
+  the scheduler and controller-manager static pods.
+*/}}
+{{- if ( eq .format "bottlerocket" ) }}
+      controllerManager:
+        extraVolumes:
+        - hostPath: /var/lib/kubeadm/controller-manager.conf
+          mountPath: /etc/kubernetes/controller-manager.conf
+          name: kubeconfig
+          pathType: File
+          readOnly: true
+{{- end }}
+{{- if ( eq .format "bottlerocket" ) }}
+      scheduler:
+        extraVolumes:
+        - hostPath: /var/lib/kubeadm/scheduler.conf
+          mountPath: /etc/kubernetes/scheduler.conf
+          name: kubeconfig
+          pathType: File
+          readOnly: true
+      certificatesDir: /var/lib/kubeadm/pki
+{{- end }}
+    initConfiguration:
+{{- if .kubeletConfiguration }}
+      patches:
+        directory: /etc/kubernetes/patches
+{{- end }}
+      nodeRegistration:
+        kubeletExtraArgs:
+          provider-id: PROVIDER_ID
+{{- if not .kubeletConfiguration }}
+          read-only-port: "0"
+          anonymous-auth: "false"
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- end }}
+{{- if .cpNodeLabelArgs }}
+{{ .cpNodeLabelArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- if not .workerNodeGroupConfigurations }}
+        taints: []
+{{- end }}
+{{- if and .workerNodeGroupConfigurations .controlPlaneTaints }}
+        taints:
+{{- range .controlPlaneTaints}}
+          - key: {{ .Key }}
+            value: {{ .Value }}
+            effect: {{ .Effect }}
+{{- if .TimeAdded }}
+            timeAdded: {{ .TimeAdded }}
+{{- end }}
+{{- end }}
+{{- end }}
+    joinConfiguration:
+{{- if .kubeletConfiguration }}
+      patches:
+        directory: /etc/kubernetes/patches
+{{- end }}
+{{- if (eq .format "bottlerocket") }}
+      pause:
+        imageRepository: {{.pauseRepository}}
+        imageTag: {{.pauseVersion}}
+      bottlerocketBootstrap:
+        imageRepository: {{.bottlerocketBootstrapRepository}}
+        imageTag: {{.bottlerocketBootstrapVersion}}
+{{- end }}
+{{- if and .registryMirrorMap (eq .format "bottlerocket") }}
+      registryMirror:
+        endpoint: {{ .publicMirror }}
+        {{- if .registryCACert }}
+        caCert: |
+{{ .registryCACert | indent 10 }}
+        {{- end }}
+{{- end }}
+{{- if .bottlerocketSettings }}
+{{ .bottlerocketSettings | indent 6 }}
+{{- end }}
+{{- if .certBundles }}
+      certBundles:
+        {{- range .certBundles }}
+      - name: "{{ .Name }}"
+        data: |
+{{ .Data | indent 10 }}
+        {{- end }}
+{{- end}}
+{{- if and .proxyConfig (eq .format "bottlerocket") }}
+      proxy:
+        httpsProxy: {{.httpsProxy}}
+        noProxy: {{ range .noProxy }}
+        - {{ . }}
+        {{- end }}
+{{- end }}
+      nodeRegistration:
+        ignorePreflightErrors:
+        - DirAvailable--etc-kubernetes-manifests
+        kubeletExtraArgs:
+          provider-id: PROVIDER_ID
+{{- if not .kubeletConfiguration }}
+          read-only-port: "0"
+          anonymous-auth: "false"
+{{- if .kubeletExtraArgs }}
+{{ .kubeletExtraArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- end }}
+{{- if .cpNodeLabelArgs }}
+{{ .cpNodeLabelArgs.ToYaml | indent 10 }}
+{{- end }}
+{{- if not .workerNodeGroupConfigurations }}
+        taints: []
+{{- end }}
+{{- if and .workerNodeGroupConfigurations .controlPlaneTaints }}
+        taints:
+{{- range .controlPlaneTaints}}
+          - key: {{ .Key }}
+            value: {{ .Value }}
+            effect: {{ .Effect }}
+{{- if .TimeAdded }}
+            timeAdded: {{ .TimeAdded }}
+{{- end }}
+{{- end }}
+{{- end }}
+    files:
+{{- if .kubeletConfiguration }}
+      - content: |
+{{ .kubeletConfiguration | indent 10 }}
+        owner: root:root
+        permissions: "0644"
+        path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.yaml
+{{- end }}
+{{- if not .cpSkipLoadBalancerDeployment }}
+      - content: |
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            creationTimestamp: null
+            name: kube-vip
+            namespace: kube-system
+          spec:
+            containers:
+            - args:
+              - manager
+              env:
+              - name: vip_arp
+                value: "true"
+              - name: port
+                value: "6443"
+              - name: vip_cidr
+                value: "32"
+              - name: cp_enable
+                value: "true"
+              - name: cp_namespace
+                value: kube-system
+              - name: vip_ddns
+                value: "false"
+              - name: vip_leaderelection
+                value: "true"
+              - name: vip_leaseduration
+                value: "15"
+              - name: vip_renewdeadline
+                value: "10"
+              - name: vip_retryperiod
+                value: "2"
+              - name: address
+                value: {{.controlPlaneEndpointIp}}
+{{- if and (not .workerNodeGroupConfigurations) (not .skipLoadBalancerDeployment) }}
+                # kube-vip daemon in worker node watches for LoadBalancer services.
+                # When there is no worker node, make kube-vip in control-plane nodes watch
+              - name: svc_enable
+                value: "true"
+              - name: svc_election
+                value: "true"
+{{- end }}
+              image: {{ .kubeVipImage }}
+              imagePullPolicy: IfNotPresent
+              name: kube-vip
+              resources: {}
+              securityContext:
+                capabilities:
+                  add:
+                  - NET_ADMIN
+                  - NET_RAW
+              volumeMounts:
+              - mountPath: /etc/kubernetes/admin.conf
+                name: kubeconfig
+            hostNetwork: true
+            volumes:
+            - hostPath:
+{{- if (eq .format "bottlerocket") }}
+                path: /var/lib/kubeadm/admin.conf
+{{- else }}
+                path: /etc/kubernetes/admin.conf
+{{- end }}
+              name: kubeconfig
+          status: {}
+        owner: root:root
+        path: /etc/kubernetes/manifests/kube-vip.yaml
+{{- end }}
+      - content: |
+{{ .auditPolicy | indent 10 }}
+        owner: root:root
+        path: /etc/kubernetes/audit-policy.yaml
+{{- if .awsIamAuth}}
+      - content: |
+          # clusters refers to the remote service.
+          clusters:
+            - name: aws-iam-authenticator
+              cluster:
+                certificate-authority: /var/aws-iam-authenticator/cert.pem
+                server: https://localhost:21362/authenticate
+          # users refers to the API Server's webhook configuration
+          # (we don't need to authenticate the API server).
+          users:
+            - name: apiserver
+          # kubeconfig files require a context. Provide one for the API Server.
+          current-context: webhook
+          contexts:
+          - name: webhook
+            context:
+              cluster: aws-iam-authenticator
+              user: apiserver
+        permissions: "0640"
+        owner: root:root
+        path: /var/lib/kubeadm/aws-iam-authenticator/kubeconfig.yaml
+      - contentFrom:
+          secret:
+            name: {{.clusterName}}-aws-iam-authenticator-ca
+            key: cert.pem
+        permissions: "0640"
+        owner: root:root
+        path: /var/lib/kubeadm/aws-iam-authenticator/pki/cert.pem
+      - contentFrom:
+          secret:
+            name: {{.clusterName}}-aws-iam-authenticator-ca
+            key: key.pem
+        permissions: "0640"
+        owner: root:root
+        path: /var/lib/kubeadm/aws-iam-authenticator/pki/key.pem
+{{- end}}
+{{- if (ne .format "bottlerocket") }}
+{{- if .proxyConfig }}
+      - content: |
+          [Service]
+          Environment="HTTP_PROXY={{.httpProxy}}"
+          Environment="HTTPS_PROXY={{.httpsProxy}}"
+          Environment="NO_PROXY={{ stringsJoin .noProxy "," }}"
+        owner: root:root
+        path: /etc/systemd/system/containerd.service.d/http-proxy.conf
+{{- end }}
+{{- if .registryCACert }}
+      - content: |
+{{ .registryCACert | indent 10 }}
+        owner: root:root
+        path: "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+{{- end }}
+{{- if .registryMirrorMap }}
+      - content: |
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+            {{- range $orig, $mirror := .registryMirrorMap }}
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ $orig }}"]
+              endpoint = ["https://{{ $mirror }}"]
+            {{- end }}
+            {{- if or .registryCACert .insecureSkip }}
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".tls]
+            {{- if .registryCACert }}
+              ca_file = "/etc/containerd/certs.d/{{ .mirrorBase }}/ca.crt"
+            {{- end }}
+            {{- if .insecureSkip }}
+              insecure_skip_verify = {{.insecureSkip}}
+            {{- end }}
+            {{- end }}
+            {{- if .registryAuth }}
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .mirrorBase }}".auth]
+              username = "{{.registryUsername}}"
+              password = "{{.registryPassword}}"
+            {{- end }}
+        owner: root:root
+        path: "/etc/containerd/config_append.toml"
+{{- end }}
+{{- end }}
+{{- if .cpNtpServers }}
+    ntp:
+      enabled: true
+      servers: {{ range .cpNtpServers }}
+      - {{ . }}
+      {{- end }}
+{{- end }}
+{{- if and (or .registryMirrorMap .proxyConfig (ge (atoi $kube_minor_version) 29)) (ne .format "bottlerocket") }}
+    preKubeadmCommands:
+{{- if .registryMirrorMap }}
+    - cat /etc/containerd/config_append.toml >> /etc/containerd/config.toml
+{{- end}}
+{{- if (or .registryMirrorMap .proxyConfig) }}
+    - sudo systemctl daemon-reload
+    - sudo systemctl restart containerd
+{{- end}}
+{{- if (ge (atoi $kube_minor_version) 29) }}
+    - "if [ -f /run/kubeadm/kubeadm.yaml ]; then sed -i 's#path: /etc/kubernetes/admin.conf#path: /etc/kubernetes/super-admin.conf#' /etc/kubernetes/manifests/kube-vip.yaml; fi"
+{{- end }}
+{{- end }}
+    users:
+    - name: {{.controlPlaneSshUsername}}
+      sshAuthorizedKeys:
+      - '{{.controlPlaneSshAuthorizedKey}}'
+      sudo: ALL=(ALL) NOPASSWD:ALL
+    format: {{.format}}
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: TinkerbellMachineTemplate
+      name: {{.controlPlaneTemplateName}}
+  replicas: {{.controlPlaneReplicas}}
+{{- if .upgradeRolloutStrategy }}
+  rolloutStrategy:
+{{- if (eq .upgradeRolloutStrategyType "InPlace") }}
+    type: {{.upgradeRolloutStrategyType}}
+{{- else}}
+    rollingUpdate:
+      maxSurge: {{.maxSurge}}
+{{- end }}
+{{- end }}
+  version: {{.kubernetesVersion}}
+---
+{{- if .externalEtcd }}
+kind: EtcdadmCluster
+apiVersion: etcdcluster.cluster.x-k8s.io/v1beta1
+metadata:
+  name: {{.clusterName}}-etcd
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  replicas: {{.externalEtcdReplicas}}
+  etcdadmConfigSpec:
+    etcdadmBuiltin: true
+    format: {{.format}}
+{{- if (eq .format "bottlerocket") }}
+    bottlerocketConfig:
+      etcdImage: {{.etcdImage}}
+      bootstrapImage: {{.bottlerocketBootstrapRepository}}:{{.bottlerocketBootstrapVersion}}
+      pauseImage: {{.pauseRepository}}:{{.pauseVersion}}
+{{- else}}
+    cloudInitConfig:
+      version: {{.externalEtcdVersion}}
+      installDir: "/usr/bin"
+{{- if .externalEtcdReleaseUrl }}
+      etcdReleaseURL: {{.externalEtcdReleaseUrl}}
+{{- end }}
+    preEtcdadmCommands:
+      - hostname "{{`{{ ds.meta_data.hostname }}`}}"
+      - echo "::1         ipv6-localhost ipv6-loopback" >/etc/hosts
+      - echo "127.0.0.1   localhost" >>/etc/hosts
+      - echo "127.0.0.1   {{`{{ ds.meta_data.hostname }}`}}" >>/etc/hosts
+      - echo "{{`{{ ds.meta_data.hostname }}`}}" >/etc/hostname
+{{- end }}
+{{- if .etcdCipherSuites }}
+    cipherSuites: {{.etcdCipherSuites}}
+{{- end }}
+    users:
+      - name: {{.etcdSshUsername}}
+        sshAuthorizedKeys:
+          - '{{.etcdSshAuthorizedKey}}'
+        sudo: ALL=(ALL) NOPASSWD:ALL
+{{- if .proxyConfig }}
+    proxy:
+      httpProxy: {{ .httpProxy }}
+      httpsProxy: {{ .httpsProxy }}
+      noProxy: {{ range .noProxy }}
+        - {{ . }}
+      {{- end }}
+{{- end }}
+{{- if .registryMirrorMap }}
+    registryMirror:
+      endpoint: {{ .publicMirror }}
+      {{- if .registryCACert }}
+      caCert: |
+{{ .registryCACert | indent 8 }}
+      {{- end }}
+{{- end }}
+  infrastructureTemplate:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: TinkerbellMachineTemplate
+    name: {{.etcdTemplateName}}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: TinkerbellMachineTemplate
+metadata:
+  name: {{.etcdTemplateName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  template:
+    {{- if and .etcdTemplateOverride (ne .format "")}}
+    spec:
+      hardwareAffinity:
+        required:
+        - labelSelector:
+            matchLabels: {{ range $key, $value := .etcdHardwareSelector}}
+              {{ $key }}: {{ $value}}
+            {{- end }}
+      bootOptions:
+        bootMode: {{.bootMode}}
+        {{- if .isoUrl }}
+        isoURL: {{.isoUrl}}
+        {{- end }}
+      templateOverride: |
+{{.etcdTemplateOverride | indent 8}}
+    {{- end }}
+    {{- if (eq .etcdTemplateOverride "") }}
+    spec: {}
+    {{- end }}
+---
+{{- end }}
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: TinkerbellMachineTemplate
+metadata:
+  name: {{.controlPlaneTemplateName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  template:
+    {{- if and .controlPlanetemplateOverride (ne .format "")}}
+    spec:
+      hardwareAffinity:
+        required:
+        - labelSelector:
+            matchLabels: {{ range $key, $value := .hardwareSelector}}
+              {{ $key }}: {{ $value}}
+            {{- end }}
+      bootOptions:
+        bootMode: {{.bootMode}}
+        {{- if .isoUrl }}
+        isoURL: {{.isoUrl}}
+        {{- end }}
+      templateOverride: |
+{{.controlPlanetemplateOverride | indent 8}}
+    {{- end }}
+    {{- if (eq .controlPlanetemplateOverride "") }}
+    spec: {}
+    {{- end }}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: TinkerbellCluster
+metadata:
+  name:  {{.clusterName}}
+  namespace: {{.eksaSystemNamespace}}
+spec:
+  imageLookupFormat: {{.osDistro}}-{{.osVersion}}-kube-{{.kubernetesVersion}}.raw.gz
+  imageLookupBaseRegistry: {{.baseRegistry}}/
+{{- if .registryAuth }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-credentials
+  namespace: {{.eksaSystemNamespace}}
+  labels:
+    clusterctl.cluster.x-k8s.io/move: "true"
+data:
+  username: {{.registryUsername | b64enc}}
+  password: {{.registryPassword | b64enc}}
+{{- end }}

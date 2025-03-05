@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: {{.Namespace}}
+resources:
+- gotk-components.yaml
+- gotk-sync.yaml
+patches:
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: helm-controller
+      namespace: {{.Namespace}}
+    spec:
+      template:
+        spec:
+          containers:
+          - image: {{.HelmControllerImage}}
+            name: manager
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: kustomize-controller
+      namespace: {{.Namespace}}
+    spec:
+      template:
+        spec:
+          containers:
+          - image: {{.KustomizeControllerImage}}
+            name: manager
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: notification-controller
+      namespace: {{.Namespace}}
+    spec:
+      template:
+        spec:
+          containers:
+          - image: {{.NotificationControllerImage}}
+            name: manager
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: source-controller
+      namespace: {{.Namespace}}
+    spec:
+      template:
+        spec:
+          containers:
+          - image: {{.SourceControllerImage}}
+            name: manager

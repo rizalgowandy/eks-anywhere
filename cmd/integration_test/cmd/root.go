@@ -31,7 +31,9 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 }
 
 func initLogger() error {
-	if err := logger.InitZap(viper.GetInt("verbosity")); err != nil {
+	if err := logger.Init(logger.Options{
+		Level: viper.GetInt("verbosity"),
+	}); err != nil {
 		return fmt.Errorf("failed init zap logger in root command: %v", err)
 	}
 

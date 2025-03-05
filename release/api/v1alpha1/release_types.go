@@ -18,7 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ReleaseSpec defines the desired state of Release
+// ReleaseSpec defines the desired state of Release.
 type ReleaseSpec struct {
 	// +kubebuilder:validation:Required
 	// EKS-A Latest Release version following semver
@@ -29,13 +29,13 @@ type ReleaseSpec struct {
 	Releases []EksARelease `json:"releases"`
 }
 
-// ReleaseStatus defines the observed state of Release
+// ReleaseStatus defines the observed state of Release.
 type ReleaseStatus struct{}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// Release is the Schema for the releases API
+// Release is the Schema for the releases API.
 type Release struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -46,7 +46,7 @@ type Release struct {
 
 //+kubebuilder:object:root=true
 
-// ReleaseList contains a list of Release
+// ReleaseList contains a list of Release.
 type ReleaseList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -57,7 +57,7 @@ func init() {
 	SchemeBuilder.Register(&Release{}, &ReleaseList{})
 }
 
-// EksARelease defines each release of EKS-Anywhere
+// EksARelease defines each release of EKS-Anywhere.
 type EksARelease struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Type=string
@@ -82,13 +82,18 @@ type EksARelease struct {
 
 	// +kubebuilder:validation:Required
 	// Manifest url to parse bundle information from for this EKS-A release
-	BundleManifestUrl string `json:"bundleManifestUrl"`
+	BundleManifestUrl string `json:"bundleManifestUrl"` //nolint:revive
 
 	// +kubebuilder:validation:Required
 	// EKS Anywhere binary bundle
 	EksABinary BinaryBundle `json:"eksABinary"`
+
+	// +kubebuilder:validation:Required
+	// EKS Anywhere CLI bundle
+	EksACLI PlatformBundle `json:"eksACLI"`
 }
 
+// BinaryBundle defines the EKS Anywhere Linux and Darwin binaries for each release.
 type BinaryBundle struct {
 	// +kubebuilder:validation:Required
 	// EKS Anywhere Linux binary
@@ -97,4 +102,21 @@ type BinaryBundle struct {
 	// +kubebuilder:validation:Required
 	// EKS Anywhere Darwin binary
 	DarwinBinary Archive `json:"darwin"`
+}
+
+// PlatformBundle defines the EKS Anywhere binaries by operating system.
+type PlatformBundle struct {
+	// +kubebuilder:validation:Required
+	// EKS Anywhere Linux binary
+	LinuxBinary ArchitectureBundle `json:"linux"`
+
+	// +kubebuilder:validation:Required
+	// EKS Anywhere Darwin binary
+	DarwinBinary ArchitectureBundle `json:"darwin"`
+}
+
+// ArchitectureBundle defines the per-architecture binaries for an operating system.
+type ArchitectureBundle struct {
+	Amd64 Archive `json:"amd64"`
+	Arm64 Archive `json:"arm64"`
 }

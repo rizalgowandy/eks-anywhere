@@ -6,37 +6,17 @@ import (
 	"regexp"
 )
 
-const GitOpsConfigKind = "GitOpsConfig"
+const (
+	GitOpsConfigKind     = "GitOpsConfig"
+	FluxDefaultNamespace = "flux-system"
+	FluxDefaultBranch    = "main"
+)
 
-func GetAndValidateGitOpsConfig(fileName string, refName string) (*GitOpsConfig, error) {
-	config, err := getGitOpsConfig(fileName)
-	if err != nil {
-		return nil, err
-	}
-	err = validateGitOpsConfig(config, refName)
-	if err != nil {
-		return nil, err
-	}
-	return config, nil
-}
-
-func getGitOpsConfig(fileName string) (*GitOpsConfig, error) {
-	var config GitOpsConfig
-	err := ParseClusterConfig(fileName, &config)
-	if err != nil {
-		return nil, err
-	}
-	return &config, nil
-}
-
-func validateGitOpsConfig(config *GitOpsConfig, refName string) error {
+func validateGitOpsConfig(config *GitOpsConfig) error {
 	if config == nil {
 		return errors.New("gitOpsRef is specified but GitOpsConfig is not specified")
 	}
-	if config.Name != refName {
-		return fmt.Errorf("GitOpsConfig retrieved with name %s does not match name (%s) specified in "+
-			"gitOpsRef", config.Name, refName)
-	}
+
 	flux := config.Spec.Flux
 
 	if len(flux.Github.Owner) <= 0 {
@@ -74,4 +54,19 @@ func validateGitRepoName(repoName string) error {
 		return fmt.Errorf("%s is not a valid git repository name, name can contain only letters, digits, '_', '-' and '.'", repoName)
 	}
 	return nil
+}
+
+func setGitOpsConfigDefaults(gitops *GitOpsConfig) {
+	if gitops == nil {
+		return
+	}
+
+	c := &gitops.Spec.Flux
+	if len(c.Github.FluxSystemNamespace) == 0 {
+		c.Github.FluxSystemNamespace = FluxDefaultNamespace
+	}
+
+	if len(c.Github.Branch) == 0 {
+		c.Github.Branch = FluxDefaultBranch
+	}
 }

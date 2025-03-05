@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/onsi/gomega"
+
 	"github.com/aws/eks-anywhere/pkg/retrier"
 )
 
@@ -48,6 +50,18 @@ func TestNewWithMaxRetriesSuccessAfterRetries(t *testing.T) {
 
 	if gotRetries != wantRetries {
 		t.Fatalf("Wrong number of retries, got %d, want %d", gotRetries, wantRetries)
+	}
+}
+
+func TestNewWithNoTimeout(t *testing.T) {
+	r := retrier.NewWithNoTimeout()
+	fn := func() error {
+		return nil
+	}
+
+	err := r.Retry(fn)
+	if err != nil {
+		t.Fatalf("Retrier.Retry() error = %v, want nil", err)
 	}
 }
 
@@ -170,4 +184,28 @@ func TestNewWithRetryPolicyFinishByPolicy(t *testing.T) {
 	if gotRetries != wantRetries {
 		t.Fatalf("Wrong number of retries, got %d, want %d", gotRetries, wantRetries)
 	}
+}
+
+func TestRetrierWithNilReceiver(t *testing.T) {
+	var retrier *retrier.Retrier = nil // This seems improbable, but happens in some other unit tests.
+
+	expectedError := errors.New("my expected error")
+	retryable := func() error {
+		return expectedError
+	}
+
+	err := retrier.Retry(retryable)
+	if err == nil || err.Error() != expectedError.Error() {
+		t.Errorf("Retrier didn't correctly handle nil receiver")
+	}
+}
+
+func TestBackOffPolicy(t *testing.T) {
+	g := NewWithT(t)
+	backOff := time.Second
+	p := retrier.BackOffPolicy(backOff)
+
+	retry, gotBackOff := p(10, errors.New(""))
+	g.Expect(retry).To(BeTrue())
+	g.Expect(gotBackOff).To(Equal(backOff))
 }

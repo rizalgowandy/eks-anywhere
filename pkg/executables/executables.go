@@ -7,124 +7,90 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
+	"github.com/aws/eks-anywhere/pkg/config"
+	"github.com/aws/eks-anywhere/pkg/constants"
 	"github.com/aws/eks-anywhere/pkg/logger"
+	"github.com/aws/eks-anywhere/pkg/providers/cloudstack/decoder"
 )
 
-const redactMask = "*****"
+const (
+	redactMask = "*****"
+)
 
-var redactedEnvKeys = []string{vSphereUsernameKey, vSpherePasswordKey}
+var redactedEnvKeys = []string{
+	constants.VSphereUsernameKey,
+	constants.VSpherePasswordKey,
+	constants.GovcUsernameKey,
+	constants.GovcPasswordKey,
+	decoder.CloudStackCloudConfigB64SecretKey,
+	eksaGithubTokenEnv,
+	githubTokenEnv,
+	config.EksaAccessKeyIdEnv,
+	config.EksaSecretAccessKeyEnv,
+	config.AwsAccessKeyIdEnv,
+	config.AwsSecretAccessKeyEnv,
+	constants.SnowCredentialsKey,
+	constants.SnowCertsKey,
+	constants.NutanixUsernameKey,
+	constants.NutanixPasswordKey,
+	constants.RegistryUsername,
+	constants.RegistryPassword,
+}
 
 type executable struct {
 	cli string
 }
 
-type linuxDockerExecutable struct {
-	cli      string
-	image    string
-	mountDir string
-}
-
 type Executable interface {
 	Execute(ctx context.Context, args ...string) (stdout bytes.Buffer, err error)
-	ExecuteWithEnv(ctx context.Context, envs map[string]string, args ...string) (stdout bytes.Buffer, err error)
-	ExecuteWithStdin(ctx context.Context, in []byte, args ...string) (stdout bytes.Buffer, err error)
+	ExecuteWithEnv(ctx context.Context, envs map[string]string, args ...string) (stdout bytes.Buffer, err error) // TODO: remove this from interface in favor of Command
+	ExecuteWithStdin(ctx context.Context, in []byte, args ...string) (stdout bytes.Buffer, err error)            // TODO: remove this from interface in favor of Command
+	Command(ctx context.Context, args ...string) *Command
+	Run(cmd *Command) (stdout bytes.Buffer, err error)
 }
 
-// this should only be called through the executables.builder
+// this should only be called through the executables.builder.
 func NewExecutable(cli string) Executable {
 	return &executable{
 		cli: cli,
 	}
 }
 
-// This currently returns a linuxDockerExecutable, but if we support other types of docker executables we can change
-// the name of this constructor
-func NewDockerExecutable(cli, image string, mountDir string) Executable {
-	return &linuxDockerExecutable{
-		cli:      cli,
-		image:    image,
-		mountDir: mountDir,
-	}
+func (e *executable) Execute(ctx context.Context, args ...string) (stdout bytes.Buffer, err error) {
+	return e.Command(ctx, args...).Run()
 }
 
-func (e *linuxDockerExecutable) workingDirectory() (string, error) {
-	path, err := filepath.Abs(e.mountDir)
-	if err != nil {
-		return "", fmt.Errorf("error getting abs path for working dir: %v", err)
-	}
-
-	return path, nil
-}
-
-func (e *linuxDockerExecutable) Execute(ctx context.Context, args ...string) (bytes.Buffer, error) {
-	var stdout bytes.Buffer
-	if command, err := e.buildCommand(map[string]string{}, e.cli, args...); err != nil {
-		return stdout, err
-	} else {
-		return execute(ctx, "docker", nil, command...)
-	}
-}
-
-func (e *linuxDockerExecutable) ExecuteWithStdin(ctx context.Context, in []byte, args ...string) (bytes.Buffer, error) {
-	var stdout bytes.Buffer
-	if command, err := e.buildCommand(map[string]string{}, e.cli, args...); err != nil {
-		return stdout, err
-	} else {
-		return execute(ctx, "docker", in, command...)
-	}
-}
-
-func (e *linuxDockerExecutable) buildCommand(envs map[string]string, cli string, args ...string) ([]string, error) {
-	directory, err := e.workingDirectory()
-	if err != nil {
-		return nil, err
-	}
-
-	var envVars []string
-	for k, v := range envs {
-		envVars = append(envVars, "-e", fmt.Sprintf("%s=%s", k, v))
-	}
-	dockerCommands := []string{
-		"run", "-i", "--network", "host", "-v", fmt.Sprintf("%s:%s", directory, directory),
-		"-w", directory, "-v", "/var/run/docker.sock:/var/run/docker.sock",
-	}
-	dockerCommands = append(dockerCommands, envVars...)
-	dockerCommands = append(dockerCommands, "--entrypoint", cli, e.image)
-	dockerCommands = append(dockerCommands, args...)
-	return dockerCommands, nil
-}
-
-func (e *linuxDockerExecutable) ExecuteWithEnv(ctx context.Context, envs map[string]string, args ...string) (bytes.Buffer, error) {
-	var stdout bytes.Buffer
-	if command, err := e.buildCommand(envs, e.cli, args...); err != nil {
-		return stdout, err
-	} else {
-		return execute(ctx, "docker", nil, command...)
-	}
-}
-
-func (e *executable) Execute(ctx context.Context, args ...string) (bytes.Buffer, error) {
-	return execute(ctx, e.cli, nil, args...)
-}
-
-func (e *executable) ExecuteWithStdin(ctx context.Context, in []byte, args ...string) (bytes.Buffer, error) {
-	return execute(ctx, e.cli, in, args...)
+func (e *executable) ExecuteWithStdin(ctx context.Context, in []byte, args ...string) (stdout bytes.Buffer, err error) {
+	return e.Command(ctx, args...).WithStdIn(in).Run()
 }
 
 func (e *executable) ExecuteWithEnv(ctx context.Context, envs map[string]string, args ...string) (stdout bytes.Buffer, err error) {
-	for k, v := range envs {
-		os.Setenv(k, v)
-	}
-	return e.Execute(ctx, args...)
+	return e.Command(ctx, args...).WithEnvVars(envs).Run()
 }
 
-func redactCreds(cmd string) string {
+func (e *executable) Command(ctx context.Context, args ...string) *Command {
+	return NewCommand(ctx, e, args...)
+}
+
+func (e *executable) Run(cmd *Command) (stdout bytes.Buffer, err error) {
+	for k, v := range cmd.envVars {
+		os.Setenv(k, v)
+	}
+	return execute(cmd.ctx, e.cli, cmd.stdIn, cmd.envVars, cmd.args...)
+}
+
+func (e *executable) Close(ctx context.Context) error {
+	return nil
+}
+
+func RedactCreds(cmd string, envMap map[string]string) string {
 	redactedEnvs := []string{}
 	for _, redactedEnvKey := range redactedEnvKeys {
-		if env, found := os.LookupEnv(redactedEnvKey); found {
+		if env, found := os.LookupEnv(redactedEnvKey); found && env != "" {
+			redactedEnvs = append(redactedEnvs, env)
+		} else if env, found := envMap[redactedEnvKey]; found && env != "" {
 			redactedEnvs = append(redactedEnvs, env)
 		}
 	}
@@ -135,23 +101,22 @@ func redactCreds(cmd string) string {
 	return cmd
 }
 
-func execute(ctx context.Context, cli string, in []byte, args ...string) (bytes.Buffer, error) {
-	var stdout, stderr bytes.Buffer
+func execute(ctx context.Context, cli string, in []byte, envVars map[string]string, args ...string) (stdout bytes.Buffer, err error) {
+	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, cli, args...)
-	logger.V(6).Info("Executing command", "cmd", redactCreds(cmd.String()))
+	logger.V(6).Info("Executing command", "cmd", RedactCreds(cmd.String(), envVars))
 	cmd.Stdout = &stdout
-	if logger.MaxLogging() {
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stderr = &stderr
-	}
+	cmd.Stderr = &stderr
 	if len(in) != 0 {
 		cmd.Stdin = bytes.NewReader(in)
 	}
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		if stderr.Len() > 0 {
+			if logger.MaxLogging() {
+				logger.V(logger.MaxLogLevel).Info(cli, "stderr", stderr.String())
+			}
 			return stdout, errors.New(stderr.String())
 		} else {
 			if !logger.MaxLogging() {
